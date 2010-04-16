@@ -19,34 +19,35 @@ namespace clang {
 
 namespace frontend {
   enum ActionKind {
-    ASTDump,                ///< Parse ASTs and dump them.
-    ASTPrint,               ///< Parse ASTs and print them.
-    ASTPrintXML,            ///< Parse ASTs and print them in XML.
-    ASTView,                ///< Parse ASTs and view them in Graphviz.
-    DumpRawTokens,          ///< Dump out raw tokens.
-    DumpTokens,             ///< Dump out preprocessed tokens.
-    EmitAssembly,           ///< Emit a .s file.
-    EmitBC,                 ///< Emit a .bc file.
-    EmitHTML,               ///< Translate input source into HTML.
-    EmitLLVM,               ///< Emit a .ll file.
-    EmitLLVMOnly,           ///< Generate LLVM IR, but do not
-    EmitObj,                ///< Emit a .o file.
-    FixIt,                  ///< Parse and apply any fixits to the source.
-    GeneratePCH,            ///< Generate pre-compiled header.
-    GeneratePTH,            ///< Generate pre-tokenized header.
-    InheritanceView,        ///< View C++ inheritance for a specified class.
-    InitOnly,               ///< Only execute frontend initialization.
-    ParseNoop,              ///< Parse with noop callbacks.
-    ParsePrintCallbacks,    ///< Parse and print each callback.
-    ParseSyntaxOnly,        ///< Parse and perform semantic analysis.
-    PluginAction,           ///< Run a plugin action, \see ActionName.
-    PrintDeclContext,       ///< Print DeclContext and their Decls.
-    PrintPreprocessedInput, ///< -E mode.
-    RewriteMacros,          ///< Expand macros but not #includes.
-    RewriteObjC,            ///< ObjC->C Rewriter.
-    RewriteTest,            ///< Rewriter playground
-    RunAnalysis,            ///< Run one or more source code analyses.
-    RunPreprocessorOnly     ///< Just lex, no output.
+    ASTDump,                    ///< Parse ASTs and dump them.
+    ASTPrint,                   ///< Parse ASTs and print them.
+    ASTPrintXML,                ///< Parse ASTs and print them in XML.
+    ASTView,                    ///< Parse ASTs and view them in Graphviz.
+    DistributeAndPreprocess,    ///< Preprocess file and distribute to slave nodes >
+    DumpRawTokens,              ///< Dump out raw tokens.
+    DumpTokens,                 ///< Dump out preprocessed tokens.
+    EmitAssembly,               ///< Emit a .s file.
+    EmitBC,                     ///< Emit a .bc file.
+    EmitHTML,                   ///< Translate input source into HTML.
+    EmitLLVM,                   ///< Emit a .ll file.
+    EmitLLVMOnly,               ///< Generate LLVM IR, but do not
+    EmitObj,                    ///< Emit a .o file.
+    FixIt,                      ///< Parse and apply any fixits to the source.
+    GeneratePCH,                ///< Generate pre-compiled header.
+    GeneratePTH,                ///< Generate pre-tokenized header.
+    InheritanceView,            ///< View C++ inheritance for a specified class.
+    InitOnly,                   ///< Only execute frontend initialization.
+    ParseNoop,                  ///< Parse with noop callbacks.
+    ParsePrintCallbacks,        ///< Parse and print each callback.
+    ParseSyntaxOnly,            ///< Parse and perform semantic analysis.
+    PluginAction,               ///< Run a plugin action, \see ActionName.
+    PrintDeclContext,           ///< Print DeclContext and their Decls.
+    PrintPreprocessedInput,     ///< -E mode.
+    RewriteMacros,              ///< Expand macros but not #includes.
+    RewriteObjC,                ///< ObjC->C Rewriter.
+    RewriteTest,                ///< Rewriter playground
+    RunAnalysis,                ///< Run one or more source code analyses.
+    RunPreprocessorOnly         ///< Just lex, no output.
   };
 }
 

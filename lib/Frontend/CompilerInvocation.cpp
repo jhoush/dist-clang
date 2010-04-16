@@ -282,32 +282,33 @@ static const char *getActionName(frontend::ActionKind Kind) {
   case frontend::InheritanceView:
     llvm_unreachable("Invalid kind!");
 
-  case frontend::ASTDump:                return "-ast-dump";
-  case frontend::ASTPrint:               return "-ast-print";
-  case frontend::ASTPrintXML:            return "-ast-print-xml";
-  case frontend::ASTView:                return "-ast-view";
-  case frontend::DumpRawTokens:          return "-dump-raw-tokens";
-  case frontend::DumpTokens:             return "-dump-tokens";
-  case frontend::EmitAssembly:           return "-S";
-  case frontend::EmitBC:                 return "-emit-llvm-bc";
-  case frontend::EmitHTML:               return "-emit-html";
-  case frontend::EmitLLVM:               return "-emit-llvm";
-  case frontend::EmitLLVMOnly:           return "-emit-llvm-only";
-  case frontend::EmitObj:                return "-emit-obj";
-  case frontend::FixIt:                  return "-fixit";
-  case frontend::GeneratePCH:            return "-emit-pch";
-  case frontend::GeneratePTH:            return "-emit-pth";
-  case frontend::InitOnly:               return "-init-only";
-  case frontend::ParseNoop:              return "-parse-noop";
-  case frontend::ParsePrintCallbacks:    return "-parse-print-callbacks";
-  case frontend::ParseSyntaxOnly:        return "-fsyntax-only";
-  case frontend::PrintDeclContext:       return "-print-decl-contexts";
-  case frontend::PrintPreprocessedInput: return "-E";
-  case frontend::RewriteMacros:          return "-rewrite-macros";
-  case frontend::RewriteObjC:            return "-rewrite-objc";
-  case frontend::RewriteTest:            return "-rewrite-test";
-  case frontend::RunAnalysis:            return "-analyze";
-  case frontend::RunPreprocessorOnly:    return "-Eonly";
+  case frontend::ASTDump:                   return "-ast-dump";
+  case frontend::ASTPrint:                  return "-ast-print";
+  case frontend::ASTPrintXML:               return "-ast-print-xml";
+  case frontend::ASTView:                   return "-ast-view";
+  case frontend::DistributeAndPreprocess:   return "-distribute";
+  case frontend::DumpRawTokens:             return "-dump-raw-tokens";
+  case frontend::DumpTokens:                return "-dump-tokens";
+  case frontend::EmitAssembly:              return "-S";
+  case frontend::EmitBC:                    return "-emit-llvm-bc";
+  case frontend::EmitHTML:                  return "-emit-html";
+  case frontend::EmitLLVM:                  return "-emit-llvm";
+  case frontend::EmitLLVMOnly:              return "-emit-llvm-only";
+  case frontend::EmitObj:                   return "-emit-obj";
+  case frontend::FixIt:                     return "-fixit";
+  case frontend::GeneratePCH:               return "-emit-pch";
+  case frontend::GeneratePTH:               return "-emit-pth";
+  case frontend::InitOnly:                  return "-init-only";
+  case frontend::ParseNoop:                 return "-parse-noop";
+  case frontend::ParsePrintCallbacks:       return "-parse-print-callbacks";
+  case frontend::ParseSyntaxOnly:           return "-fsyntax-only";
+  case frontend::PrintDeclContext:          return "-print-decl-contexts";
+  case frontend::PrintPreprocessedInput:    return "-E";
+  case frontend::RewriteMacros:             return "-rewrite-macros";
+  case frontend::RewriteObjC:               return "-rewrite-objc";
+  case frontend::RewriteTest:               return "-rewrite-test";
+  case frontend::RunAnalysis:               return "-analyze";
+  case frontend::RunPreprocessorOnly:       return "-Eonly";
   }
 
   llvm_unreachable("Unexpected language kind!");
@@ -881,6 +882,8 @@ ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args, Diagnostic &Diags) {
       Opts.ProgramAction = frontend::ASTPrintXML; break;
     case OPT_ast_view:
       Opts.ProgramAction = frontend::ASTView; break;
+	case OPT_distribute_and_preprocess:
+		Opts.ProgramAction = frontend::DistributeAndPreprocess; break;
     case OPT_dump_raw_tokens:
       Opts.ProgramAction = frontend::DumpRawTokens; break;
     case OPT_dump_tokens:

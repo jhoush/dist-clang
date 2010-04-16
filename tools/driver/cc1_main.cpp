@@ -59,26 +59,27 @@ static FrontendAction *CreateFrontendBaseAction(CompilerInstance &CI) {
   default:
     llvm_unreachable("Invalid program action!");
 
-  case ASTDump:                return new ASTDumpAction();
-  case ASTPrint:               return new ASTPrintAction();
-  case ASTPrintXML:            return new ASTPrintXMLAction();
-  case ASTView:                return new ASTViewAction();
-  case DumpRawTokens:          return new DumpRawTokensAction();
-  case DumpTokens:             return new DumpTokensAction();
-  case EmitAssembly:           return new EmitAssemblyAction();
-  case EmitBC:                 return new EmitBCAction();
-  case EmitHTML:               return new HTMLPrintAction();
-  case EmitLLVM:               return new EmitLLVMAction();
-  case EmitLLVMOnly:           return new EmitLLVMOnlyAction();
-  case EmitObj:                return new EmitObjAction();
-  case FixIt:                  return new FixItAction();
-  case GeneratePCH:            return new GeneratePCHAction();
-  case GeneratePTH:            return new GeneratePTHAction();
-  case InheritanceView:        return new InheritanceViewAction();
-  case InitOnly:               return new InitOnlyAction();
-  case ParseNoop:              return new ParseOnlyAction();
-  case ParsePrintCallbacks:    return new PrintParseAction();
-  case ParseSyntaxOnly:        return new SyntaxOnlyAction();
+  case ASTDump:                 return new ASTDumpAction();
+  case ASTPrint:                return new ASTPrintAction();
+  case ASTPrintXML:             return new ASTPrintXMLAction();
+  case ASTView:                 return new ASTViewAction();
+  case DistributeAndPreprocess: return new DistributeAndPreprocessAction();
+  case DumpRawTokens:           return new DumpRawTokensAction();
+  case DumpTokens:              return new DumpTokensAction();
+  case EmitAssembly:            return new EmitAssemblyAction();
+  case EmitBC:                  return new EmitBCAction();
+  case EmitHTML:                return new HTMLPrintAction();
+  case EmitLLVM:                return new EmitLLVMAction();
+  case EmitLLVMOnly:            return new EmitLLVMOnlyAction();
+  case EmitObj:                 return new EmitObjAction();
+  case FixIt:                   return new FixItAction();
+  case GeneratePCH:             return new GeneratePCHAction();
+  case GeneratePTH:             return new GeneratePTHAction();
+  case InheritanceView:         return new InheritanceViewAction();
+  case InitOnly:                return new InitOnlyAction();
+  case ParseNoop:               return new ParseOnlyAction();
+  case ParsePrintCallbacks:     return new PrintParseAction();
+  case ParseSyntaxOnly:         return new SyntaxOnlyAction();
 
   case PluginAction: {
     if (CI.getFrontendOpts().ActionName == "help") {

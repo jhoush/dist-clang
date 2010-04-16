@@ -20,6 +20,7 @@
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/Utils.h"
 #include "llvm/Support/raw_ostream.h"
+
 using namespace clang;
 
 //===----------------------------------------------------------------------===//
@@ -321,4 +322,23 @@ void RewriteTestAction::ExecuteAction() {
   if (!OS) return;
 
   DoRewriteTest(CI.getPreprocessor(), OS);
+}
+
+
+//===----------------------------------------------------------------------===//
+// Distcc Actions
+//===----------------------------------------------------------------------===//
+
+void DistributeAndPreprocessAction::ExecuteAction() {
+	CompilerInstance &CI = getCompilerInstance();
+	std::string preprocessedSource;
+	llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(preprocessedSource);
+
+	DoPrintPreprocessedInput(CI.getPreprocessor(), OS,
+							 CI.getPreprocessorOutputOpts());
+	OS->flush();
+	llvm::errs() << "Preprocessed source\n";
+	llvm::errs() << preprocessedSource;
+	llvm::errs().flush();
+	delete OS;
 }

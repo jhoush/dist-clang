@@ -219,6 +219,15 @@ protected:
   void ExecuteAction();
 };
 
+//===----------------------------------------------------------------------===//
+// Distcc Actions
+//===----------------------------------------------------------------------===//
+
+class DistributeAndPreprocessAction : public PreprocessorFrontendAction {
+protected:
+	void ExecuteAction();
+};
+	
 }  // end namespace clang
 
 #endif
