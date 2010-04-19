@@ -12,6 +12,7 @@ add_clang_library(clangFrontend
   DeclXML.cpp
   DependencyFile.cpp
   DiagChecker.cpp
+  Distcc.cpp
   DocumentXML.cpp
   FixItRewriter.cpp
   FrontendAction.cpp
