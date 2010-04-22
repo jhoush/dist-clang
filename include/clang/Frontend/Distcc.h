@@ -6,8 +6,9 @@
  *  Copyright 2010 __MyCompanyName__. All rights reserved.
  *
  */
+#ifndef LLVM_CLANG_DISTCC_H
+#define LLVM_CLANG_DISTCC_H
 #include "clang/Frontend/CompilerInstance.h"
-#include "clang/Frontend/DistccClient.h"
 
 #include "llvm/System/Mutex.h"
 
@@ -16,6 +17,13 @@
 using namespace llvm;
 
 namespace clang {
+	struct DistccClient{
+		int fd; // fd to talk to client
+		std::vector<std::string> args;
+		bool dataSent; //to slave
+		bool dataReceived; //from slave
+	};
+	
 class Distcc {
 private:
 	// Server-side methods/vars
@@ -52,4 +60,6 @@ public:
 
 };
 
+	
 }
+#endif

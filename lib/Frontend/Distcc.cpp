@@ -9,8 +9,9 @@
 
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/Distcc.h"
-#include "clang/Frontend/Utils.h"
+#include "clang/Frontend/FrontendAction.h"
 #include "clang/Frontend/TextDiagnosticBuffer.h"
+#include "clang/Frontend/Utils.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
@@ -27,6 +28,7 @@
 #include <sys/un.h>
 #include <errno.h>
 #include <pthread.h>
+#include <limits.h>
 
 
 using namespace clang;
@@ -34,9 +36,7 @@ using namespace clang;
 //Note: http://beej.us/guide/bgipc/ was used as a reference when making socket code
 
 Distcc::Distcc(CompilerInstance &instance){
-	
-	llvm::errs() << "Hello2!\n";
-	llvm::errs().flush();
+
 	
 	this->CI = &instance;
 	const char *socketPath = "/tmp/clangSocket";
@@ -59,15 +59,15 @@ Distcc::Distcc(CompilerInstance &instance){
 		//Didn't connect, so we have to fork!
 		if((r=fork())==0){
 			llvm::errs() << "Child\n";
-			llvm::errs().flush();
+			
 			//Child(server)
 			startServer(remote);	
 			llvm::errs() << "Returned from server\n";
-			llvm::errs().flush();
+
 		}
 		else if(r>0){
 			llvm::errs() << "Parent\n";
-			llvm::errs().flush();
+
 			//Parent(client)
 			// Sleep until (approx) when socket is ready,
 			//
@@ -81,19 +81,19 @@ Distcc::Distcc(CompilerInstance &instance){
 			while (connect(serverFd, (struct sockaddr *)&remote, sizeof(remote)) == -1)
 				usleep(100); 
 			llvm::errs() << "ParentConnected\n";
-			llvm::errs().flush();
+
 			startClient();
 			return;
 		}
 		else if(r<0){
 			llvm::errs() << "Error forking\n";
-			llvm::errs().flush();
+
 		}
 	}
 	else {
 		// TODO: Remove this
 		llvm::errs() << "Ret code" << r <<  "\n";
-		llvm::errs().flush();
+
 	}
 	
 	//Connected to server, just start client
@@ -117,7 +117,7 @@ void Distcc::startServer(struct sockaddr_un &addr){
 	// we never drop connections.
 	if(listen(acceptSocket, 10)<0){
 		llvm::errs() << "Error listening to socket(startServer)\n";
-		llvm::errs().flush();
+
 		close(acceptSocket);
 	}
 	
@@ -125,13 +125,13 @@ void Distcc::startServer(struct sockaddr_un &addr){
 
 	if(pthread_create(&acceptThread, NULL, pthread_AcceptThread, this)<0){
 		llvm::errs() << "Error creating AcceptThread\n";
-		llvm::errs().flush();
+
 		close(acceptSocket);
 	}
 	
 	if(pthread_create(&preprocessThread, NULL, pthread_PreprocessThread, this)<0){
 		llvm::errs() << "Error creating preprocessor thread\n";
-		llvm::errs().flush();
+
 		close(acceptSocket);
 	}
 
@@ -161,6 +161,7 @@ void *Distcc::PreprocessThread(){
 				llvm::SmallVector<const char *, 32> argAddresses;
 				for(unsigned i=0;i<args.size();i++){
 					argAddresses.push_back(args[i].c_str());
+					llvm::errs() << args[i] << "\n";
 				}
 				
 				CompilerInvocation::CreateFromArgs(Invocation, (const char **)argAddresses.begin(),
@@ -179,13 +180,13 @@ void *Distcc::PreprocessThread(){
 				
 				Preprocessor localPreprocessor(Diags, Invocation.getLangOpts(), *Target, SourceMan, hs);
 				llvm::errs() << "Preprocessor created\n";
-				llvm::errs().flush();
+
 
 				DoPrintPreprocessedInput(localPreprocessor, OS,
 										 Invocation.getPreprocessorOutputOpts());
 				OS->flush();
 				llvm::errs() << "Preprocessed source\n" << preprocessedSource << "\n";
-				llvm::errs().flush();
+
 
 				delete OS;
 				const char *data = preprocessedSource.c_str();
@@ -261,17 +262,17 @@ void *Distcc::AcceptThread(){
 		socklen_t len = sizeof(struct sockaddr_un);
 		int fd2;
 		llvm::errs() << "Beginning AcceptThread accept\n";
-		llvm::errs().flush();
+
 		if((fd2 = accept(acceptSocket, (struct sockaddr*)&remote, &len))==EAGAIN){
 			//If nonblocking, this means, we need to retry
 			llvm::errs() << "Retry\n";
-			llvm::errs().flush();
+
 			continue;
 		}
 		else if(fd2 < 0){
 			//Other error
 			llvm::errs() << "Error accepting socket\n";
-			llvm::errs().flush();
+
 			continue;
 		}
 		
@@ -280,20 +281,20 @@ void *Distcc::AcceptThread(){
 		int lengthRead = 0;
 		if((lengthRead = recv(fd2, &sizeOfString, sizeof(sizeOfString), MSG_WAITALL))<(int)sizeof(sizeOfString)){
 			llvm::errs() << "Error recieving data from socket(#1) " << lengthRead << "\n";
-			llvm::errs().flush();
+
 			close(fd2);
 			continue;
 		}
 		
 		llvm::errs() << "Finished AcceptThread accept\n";
-		llvm::errs().flush();
+
 		
 		//Read the serialized string
 		char *argString = (char *)malloc(sizeof(char)*sizeOfString);
 		lengthRead = 0;
 		if((lengthRead = recv(fd2, argString, sizeOfString, MSG_WAITALL))<(int)sizeOfString){
 			llvm::errs() << "Error recieving data from socket(#2) " << lengthRead << "\n";
-			llvm::errs().flush();
+
 			close(fd2);
 			continue;
 		}
@@ -311,7 +312,7 @@ void *Distcc::AcceptThread(){
 		localClientsMutex.acquire();
 		localClients.push_back(client);
 		llvm::errs() << "Pushed\n";
-		llvm::errs().flush();
+
 		localClientsMutex.release();
 	}
 	return NULL; //Should never hit
@@ -334,6 +335,26 @@ void Distcc::startClient(){
 	if(index!=-1)
 		args.erase(args.begin()+index);
 	
+	// Add on name of file at end of args
+	
+	SourceManager &sm = CI->getSourceManager();
+	const FileEntry *fe = sm.getFileEntryForID(sm.getMainFileID());
+	std::string filename(fe->getName());
+	args.push_back(filename); // Push filename onto end	of args
+	
+	char path[FILENAME_MAX];
+	if(path==NULL){
+		llvm::errs() << "Error malloc'ing space for path\n";
+		return;
+	}
+	if(getcwd(path, sizeof(path))==NULL){
+		llvm::errs() << "Error getcwd'ing\n";
+		return;
+	}
+	std::string pathString(path);
+	args.push_back(pathString); // Push working dir onto end of args
+	
+	llvm::errs() << "File is " << filename <<  "\n";
 	
 	
 	// Send length of args
@@ -358,7 +379,7 @@ void Distcc::startClient(){
 	
 	// FXIXME: Recieve diags
 	llvm::errs() << "Recievining length\n";
-	llvm::errs().flush();
+
 	// FIXME: Recieve preprocessed source(remove after done)
 	int sourceLength = 0;
 	int lengthRead;
@@ -368,18 +389,18 @@ void Distcc::startClient(){
 		return;
 	}
 	llvm::errs() << "Recieving source\n";
-	llvm::errs().flush();
+
 	char *source = (char *)malloc(sizeof(char)*sourceLength+1);
 	source[sourceLength] = '\0'; // Tack on null byte
 	if(recv(serverFd, source, sourceLength, MSG_WAITALL)<(int)sourceLength){
 		llvm::errs() << "Error recieving source itself\n";
 	}
 	llvm::errs() << "Done recieving source\n";
-	llvm::errs().flush();
+
 	std::string sourceString(source);
 	free(source);
 	llvm::errs() << "Source string: " << sourceString << "\n";
-	llvm::errs().flush();
+
 	// FIXME: Recieve object code
 
 }
