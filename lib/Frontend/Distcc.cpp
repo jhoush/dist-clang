@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <limits.h>
+#include <stdio.h>
 
 
 using namespace clang;
