@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <limits.h>
+#include <stdio.h>
 
 // FIXME: Stop using zmq
 #undef error_t
