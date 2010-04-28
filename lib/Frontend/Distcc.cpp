@@ -12,6 +12,7 @@
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Frontend/TextDiagnosticBuffer.h"
 #include "clang/Frontend/Utils.h"
+#include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
@@ -416,7 +417,14 @@ void Distcc::startClient(){
 		return;
 	}
 	// FIXME: Do something other than print diags?
-	llvm::errs() << diags;
+	const char *memory = diags;
+	const char *memoryEnd = diags + sizeOfDiags;
+	FileManager &fm =  CI->getFileManager();
+	while(memory < memoryEnd){
+		StoredDiagnostic diag = StoredDiagnostic::Deserialize(fm, sm, memory, memoryEnd);
+		llvm::errs() << diag.getMessage() << "\n";
+	}
+	llvm::errs().flush();
 	
 	//FIXME: Use proper exit code(Make will continue even if file has errors!)
 	
