@@ -454,6 +454,7 @@ void *Distcc::ConnectToSlaves(){
 		}
 	}
 	llvm::errs().flush();
+	return NULL;
 }
 //Recieve messages from slaves continuously, and write out object code as relevant
 void *Distcc::ReceiveThread(){
@@ -526,5 +527,7 @@ void *Distcc::pthread_ReceiveThread(void *ctx){
 }
 
 Distcc::~Distcc(){
-
+	for(unsigned i=0;i<slaves.size();i++){
+		delete slaves[i];
+	}
 }
