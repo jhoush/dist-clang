@@ -488,7 +488,13 @@ void *Distcc::ReceiveThread(){
 			const char *objCode = (const char*)offset;
 			int objLen = messageLen - (offset - (char*)msg.data());
 			
+			clientsAwaitingObjectCodeMutex.acquire();
+			if(clientsAwaitingObjectCode.find(uniqueID)==clientsAwaitingObjectCode.end()){
+				llvm::errs() << "No client found with unique ID " << uniqueID << "\n";
+				return NULL;
+			}
 			DistccClient client = clientsAwaitingObjectCode[uniqueID];
+			clientsAwaitingObjectCodeMutex.release();
 			
 			//Write object code to disk
 			std::string errorInfo;
