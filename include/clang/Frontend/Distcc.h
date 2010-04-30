@@ -66,7 +66,7 @@ private:
 	int currentSlave; // Used so we can round-robin slaves
 	
 	std::vector<zmq::socket_t*> slaves; //holds sockets connected to slaves
-	std::vector<sys::Mutex*> slaveMutexes; //since only 1 socket can be active at once, need lock
+	std::vector<sys::Mutex*> slaveMutexes; //since only a socket can only be accessed by 1 thread at once, need lock
 	
 	void *ConnectToSlaves();
 	
