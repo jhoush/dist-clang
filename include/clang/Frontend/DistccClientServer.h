@@ -17,13 +17,10 @@ class DistccClientServer {
 private:	
     // struct to handle work data
     struct CompilerWork {
-        CompilerWork(char* a, char* s) {
-            args = a;
-            source = s; 
-        }
+        CompilerWork(std::string a, std::string s):args(a),source(s){}
         
-        char* args;
-        char* source;
+        std::string args;
+        std::string source;
     };
     
     // local vars 

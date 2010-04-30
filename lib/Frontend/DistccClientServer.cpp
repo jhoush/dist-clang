@@ -36,8 +36,6 @@
 #include <time.h>
 
 // FIXME: stop using zmq
-#undef error_t
-#include <zmq.hpp>
 
 using namespace clang;
 //using namespace clang::driver;
@@ -69,8 +67,9 @@ void DistccClientServer::startClientServer() {
         llvm::errs() << "Error creating compiler thread\n";
         llvm::errs().flush();
     }
-    
-    pthread_exit(NULL);
+    void* status;
+    pthread_join(compilerThread, &status);
+    pthread_join(requestThread, &status);
 }
 
 void *DistccClientServer::RequestThread() {
@@ -115,11 +114,11 @@ void *DistccClientServer::RequestThread() {
 	args.push_back("+sse");
 	args.push_back("-target-feature");
 	args.push_back("-sse3");
-	int argc = args.size();
-	char* fuck = (char*) source.c_str();
-	llvm::errs() << strlen(fuck) << "\n";
-	char* ss = Distcc::serializeArgVector(args, argc);
-	CompilerWork work = CompilerWork(ss, fuck);
+	int len;
+	char* tmp = Distcc::serializeArgVector(args, len);
+	std::string sArgs(tmp, len);
+	free(tmp);
+	CompilerWork work = CompilerWork(sArgs, source);
     pthread_mutex_lock(&workQueueMutex);
     llvm::errs() << "pushing work " << workQueue.size() << "\n";
     workQueue.push(work);
@@ -181,7 +180,7 @@ void *DistccClientServer::CompilerThread() {
         llvm::errs() << "retrieved work from queue\n";
 
         llvm::StringRef Source(work.source);
-        std::vector<std::string> args = Distcc::deserializeArgVector(work.args, sizeof(work.args));
+        std::vector<std::string> args = Distcc::deserializeArgVector((char*)work.args.data(), (int) work.args.size());
 		llvm::SmallVector<const char *, 32> argAddresses;
 		for(unsigned i=0;i<args.size();i++){
 			argAddresses.push_back(args[i].c_str());
