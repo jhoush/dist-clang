@@ -313,6 +313,8 @@ def rewrite_macros : Flag<"-rewrite-macros">,
   HelpText<"Expand macros without full preprocessing">;
 def distribute_and_preprocess : Flag<"-distribute">,
   HelpText<"Distribute work amongst cluster">;
+def start_client_server : Flag<"-clangd">,
+  HelpText<"Start a distcc client server">;
 
 
 }

@@ -99,7 +99,7 @@ private:
 	CompilerInstance *CI;
 	
 	// Helper methods
-	char *serializeArgVector(std::vector<std::string> &vec, int &length);
+	//char *serializeArgVector(std::vector<std::string> &vec, int &length);
 	//std::vector<std::string> deserializeArgVector(char *string, int length);
 
 	
@@ -107,6 +107,7 @@ public:
 	Distcc(CompilerInstance &instance);	
 	~Distcc();
     static std::vector<std::string> deserializeArgVector(char *string, int length);
+    static char *serializeArgVector(std::vector<std::string> &vec, int &length);
 };
 
 	

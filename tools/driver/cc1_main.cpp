@@ -80,6 +80,7 @@ static FrontendAction *CreateFrontendBaseAction(CompilerInstance &CI) {
   case ParseNoop:               return new ParseOnlyAction();
   case ParsePrintCallbacks:     return new PrintParseAction();
   case ParseSyntaxOnly:         return new SyntaxOnlyAction();
+  case StartClientServer:       return new StartClientServerAction();
 
   case PluginAction: {
     if (CI.getFrontendOpts().ActionName == "help") {

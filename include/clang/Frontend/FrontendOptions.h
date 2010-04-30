@@ -47,7 +47,8 @@ namespace frontend {
     RewriteObjC,                ///< ObjC->C Rewriter.
     RewriteTest,                ///< Rewriter playground
     RunAnalysis,                ///< Run one or more source code analyses.
-    RunPreprocessorOnly         ///< Just lex, no output.
+    RunPreprocessorOnly,        ///< Just lex, no output.
+    StartClientServer           ///< Start a distcc client server
   };
 }
 

@@ -309,6 +309,7 @@ static const char *getActionName(frontend::ActionKind Kind) {
   case frontend::RewriteTest:               return "-rewrite-test";
   case frontend::RunAnalysis:               return "-analyze";
   case frontend::RunPreprocessorOnly:       return "-Eonly";
+  case frontend::StartClientServer:         return "-clangd";
   }
 
   llvm_unreachable("Unexpected language kind!");
@@ -924,6 +925,8 @@ ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args, Diagnostic &Diags) {
       Opts.ProgramAction = frontend::RewriteObjC; break;
     case OPT_rewrite_test:
       Opts.ProgramAction = frontend::RewriteTest; break;
+    case OPT_start_client_server:
+        Opts.ProgramAction = frontend::StartClientServer; break;
     case OPT_analyze:
       Opts.ProgramAction = frontend::RunAnalysis; break;
     case OPT_Eonly:

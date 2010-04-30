@@ -20,6 +20,7 @@
 #include "clang/Frontend/FrontendDiagnostic.h"
 #include "clang/Frontend/Utils.h"
 #include "clang/Frontend/Distcc.h"
+#include "clang/Frontend/DistccClientServer.h"
 
 #include "llvm/Support/raw_ostream.h"
 
@@ -337,5 +338,12 @@ void DistributeAndPreprocessAction::ExecuteAction() {
 	CompilerInstance &CI = getCompilerInstance();
 	Distcc d(CI);
 	llvm::errs() << "Distcc constructor returned!\n";
+	llvm::errs().flush();
+}
+
+void StartClientServerAction::ExecuteAction() {
+    CompilerInstance &CI = getCompilerInstance();
+	DistccClientServer d(CI);
+	llvm::errs() << "Started Distributed server\n";
 	llvm::errs().flush();
 }

@@ -13,6 +13,7 @@ add_clang_library(clangFrontend
   DependencyFile.cpp
   DiagChecker.cpp
   Distcc.cpp
+  DistccClientServer.cpp
   DocumentXML.cpp
   FixItRewriter.cpp
   FrontendAction.cpp

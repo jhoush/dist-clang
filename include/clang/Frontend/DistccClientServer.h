@@ -8,7 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Frontend/CompilerInstance.h"
-#include "llvm/System/Mutex.h"
 #include "llvm/System/Path.h"
 #include <queue>
 #include <string>
@@ -23,23 +22,14 @@ private:
             source = s; 
         }
         
-        ~CompilerWork() {
-            /*
-            llvm::errs() << "freeing args\n";
-            delete args;
-            llvm::errs() << "freeing source\n";
-            delete source;
-            llvm::errs().flush();
-            */
-        }
-        
         char* args;
         char* source;
     };
     
     // local vars 
-    std::queue<CompilerWork> *workQueue; // queue holding all the assigned work
-    llvm::sys::Mutex workQueueMutex;          // mutex protecting the work queue
+    std::queue<CompilerWork> workQueue; // queue holding all the assigned work
+    pthread_mutex_t workQueueMutex; // mutex protecting the work queue
+    pthread_cond_t  recievedWork;
     CompilerInstance *CI;
     
     pthread_t requestThread;

@@ -227,6 +227,11 @@ class DistributeAndPreprocessAction : public PreprocessorFrontendAction {
 protected:
 	void ExecuteAction();
 };
+
+class StartClientServerAction : public PreprocessorFrontendAction {
+protected:
+	void ExecuteAction();
+};
 	
 }  // end namespace clang
 
