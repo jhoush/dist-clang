@@ -189,10 +189,7 @@ void *Distcc::PreprocessThread(){
 								 Invocation.getPreprocessorOutputOpts());
 		OS->flush();
 		delete OS;
-		
-		while(slaves.empty())
-			usleep(50); // Wait until we have at least 1 slave to send to
-		
+				
 		int argLen;
 		char *serializedArgs = serializeArgVector(client.args, argLen);
 		
@@ -222,8 +219,14 @@ void *Distcc::PreprocessThread(){
 		memcpy(offset, preprocessedSource.c_str(), preprocessedSourceLen);
 		offset += preprocessedSourceLen;
 		
-		slaves[currentSlave++]->send(msg);
-		
+		//Try to find a slave which isn't locked, lock it, send message, release lock
+		unsigned slaveNo = (currentSlave + 1) % slaves.size();
+		while(!slaveMutexes[slaveNo]->tryacquire()){
+			slaveNo = (slaveNo + 1) % slaves.size();
+		}
+		slaves[slaveNo]->send(msg);
+		currentSlave = slaveNo;
+		slaveMutexes[slaveNo]->release();
 		
 		clientsAwaitingObjectCodeMutex.acquire();
 		clientsAwaitingObjectCode.insert(std::pair<uint64_t,DistccClient>(uniqueID, client));
@@ -459,6 +462,7 @@ void *Distcc::ConnectToSlaves(){
 			//NOTE: This is async connect, so it is fast, but the connection is not guaranteed to succeed!
 			s->connect(addr.c_str());
 			slaves.push_back(s);
+			slaveMutexes.push_back(new sys::Mutex()); //Push lock onto socket lock vector
 		}
 	}
 	llvm::errs().flush();
@@ -470,6 +474,8 @@ void *Distcc::ReceiveThread(){
 		int slaveSize = slaves.size();
 		for(int i=0;i<slaveSize;i++){
 			zmq::message_t msg; //FIXME: Move this out of the loop to reuse message?
+			if(!slaveMutexes[i]->tryacquire())
+				continue; //If we can't get the lock, just move onto next socket
 			if(slaves[i]->recv(&msg, ZMQ_NOBLOCK)<0){
 				if(errno != EAGAIN){
 					llvm::errs() << "Error reading from socket(not EAGAIN): " << errno << "\n";
@@ -525,6 +531,8 @@ void *Distcc::ReceiveThread(){
 			clientsAwaitingObjectCode.erase(clientsAwaitingObjectCode.find(uniqueID));
 			clientsAwaitingObjectCodeMutex.release();
 			
+			//Release socket lock
+			slaveMutexes[i]->release();
 		}
 		
 	}
@@ -543,5 +551,8 @@ void *Distcc::pthread_ReceiveThread(void *ctx){
 Distcc::~Distcc(){
 	for(unsigned i=0;i<slaves.size();i++){
 		delete slaves[i];
+	}
+	for(unsigned i=0;i<slaveMutexes.size();i++){
+		delete slaveMutexes[i];
 	}
 }
