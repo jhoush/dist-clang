@@ -23,6 +23,7 @@
 #include "clang/Frontend/CodeGenAction.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/TargetInfo.h"
+#include "clang/Frontend/FrontendOptions.h"
 
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -54,7 +55,6 @@ DistccClientServer::DistccClientServer(CompilerInstance &CI) {
 }
 
 void DistccClientServer::startClientServer() {
-    llvm::errs() << "workqueue size " << workQueue.size() << "\n";
     llvm::errs() << "Starting request and compiler threads\n";
 	llvm::errs().flush();
 	
@@ -120,7 +120,6 @@ void *DistccClientServer::RequestThread() {
 	free(tmp);
 	CompilerWork work = CompilerWork(sArgs, source);
     pthread_mutex_lock(&workQueueMutex);
-    llvm::errs() << "pushing work " << workQueue.size() << "\n";
     workQueue.push(work);
     pthread_cond_signal(&recievedWork);
     pthread_mutex_unlock(&workQueueMutex);
@@ -173,7 +172,6 @@ void *DistccClientServer::CompilerThread() {
         while (workQueue.size() == 0) {
             pthread_cond_wait(&recievedWork, &workQueueMutex);
         }
-        llvm::errs() << workQueue.size() << "\n";
         CompilerWork work = workQueue.front();
         workQueue.pop();
         pthread_mutex_unlock(&workQueueMutex);
@@ -182,46 +180,54 @@ void *DistccClientServer::CompilerThread() {
         llvm::StringRef Source(work.source);
         std::vector<std::string> args = Distcc::deserializeArgVector((char*)work.args.data(), (int) work.args.size());
 		llvm::SmallVector<const char *, 32> argAddresses;
-		for(unsigned i=0;i<args.size();i++){
+		for (unsigned i=0;i<args.size();i++){
 			argAddresses.push_back(args[i].c_str());
-			//llvm::errs() << args[i] << "\n";
 		}
 		llvm::errs() << "deserialized args\n";
 
-		CompilerInstance Clang;
-        TextDiagnosticBuffer DiagsBuffer;
-		CompilerInvocation Invocation;
-		Diagnostic Diags(&DiagsBuffer);
 		
-        Clang.setDiagnostics(&Diags);
+		TextDiagnosticBuffer DiagsBuffer;
+		CompilerInvocation Invocation;
+		CompilerInstance Clang;
         Clang.setDiagnosticClient(&DiagsBuffer);
+        Diagnostic *Diags = new Diagnostic(&DiagsBuffer);
+        
+        Clang.setDiagnostics(Diags);
 		CompilerInvocation::CreateFromArgs(Invocation, (const char **)argAddresses.begin(),
-										   (const char **)argAddresses.end(), Diags);
+										   (const char **)argAddresses.end(), Clang.getDiagnostics());
 		Clang.setInvocation(&Invocation);
 		llvm::errs() << "set up compiler instance\n";
+
+        FrontendOptions& FeOpts = Clang.getFrontendOpts();
+        FeOpts.ProgramAction = frontend::EmitObj;
+        std::vector<std::pair<FrontendOptions::InputKind, std::string> > opts;
+        std::pair<FrontendOptions::InputKind, std::string> p(FeOpts.IK_PreprocessedCXX, "source");
+        opts.push_back(p);
+        FeOpts.Inputs = opts;
+        llvm::errs() << "tweaked frontend options\n";
+        
 		
-        llvm::errs() << "checkpoint 1\n";
 		Clang.createFileManager();
-        llvm::errs() << "checkpoint 2\n";
+		Clang.createSourceManager();
         Clang.setTarget(TargetInfo::CreateTargetInfo(Clang.getDiagnostics(),
                                                      Clang.getTargetOpts()));
-        llvm::errs() << "checkpoint 3\n";
         Clang.getTarget().setForcedLangOptions(Clang.getLangOpts());
-        llvm::errs() << "checkpoint 4\n";
-        
+
         // override the source file
         llvm::MemoryBuffer* Buffer = llvm::MemoryBuffer::getMemBuffer(Source, "source");
-		llvm::errs() << "checkpoint 5\n";
 
-        SourceManager SM(Diags);
-        Clang.createFileManager();
+		
+        SourceManager& SM = Clang.getSourceManager();
         FileManager& FM = Clang.getFileManager();
         std::string sourceName("source");
         const FileEntry* fe = FM.getVirtualFile(sourceName, strlen(Buffer->getBufferStart()), time(NULL));
         SM.overrideFileContents(fe, Buffer);
         llvm::errs() << "overrode source file\n";
         
-		Clang.setSourceManager(&SM);
+        //const FileEntry* nfe = FM.getFile(sourceName);
+        //const llvm::MemoryBuffer* mb = SM.getMemoryBufferForFile(nfe);
+        //llvm::errs() << mb->getBuffer()  << "\n";
+
         Clang.createPreprocessor();
 		llvm::LLVMContext llvmc;
 		Clang.setLLVMContext(&llvmc);
@@ -229,22 +235,20 @@ void *DistccClientServer::CompilerThread() {
         // set the output file
         Clang.clearOutputFiles(false);
         std::string objectCode;
-        llvm::raw_string_ostream* OS = new llvm::raw_string_ostream(objectCode);
-		llvm::errs() << "checkpoint 6\n";
+        llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(objectCode);
         llvm::sys::Path Path = llvm::sys::Path::GetCurrentDirectory();
         llvm::StringRef PathName(Path.getBasename());
-		llvm::errs() << "checkpoint 7\n";
         Clang.addOutputFile(PathName, OS);
         llvm::errs() << "set output file\n";
 
         // compile
         llvm::errs() << "start compilation\n";
         EmitObjAction E;
-        E.BeginSourceFile(Clang, sourceName, false);
-        E.Execute();
+        E.BeginSourceFile(Clang, sourceName);
+        //E.Execute();
 		E.EndSourceFile();
         llvm::errs() << "finished compilation\n";
-        
+
         // FIXME: remove, for test only
         std::string fname("a.out");
         std::string errName("foo");
@@ -252,6 +256,11 @@ void *DistccClientServer::CompilerThread() {
         f << objectCode;
         f.close();
         llvm::errs() << "wrote output file\n";
+
+        // avoid calling destructors twice
+        Clang.takeDiagnosticClient();
+        Clang.takeInvocation();
+        Clang.takeLLVMContext();
                 
         break;
     }
