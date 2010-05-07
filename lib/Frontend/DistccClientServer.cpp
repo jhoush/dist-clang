@@ -12,12 +12,6 @@
 
 #include "clang/Frontend/TextDiagnosticBuffer.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
-//#include "llvm/ADT/OwningPtr.h"
-//#include "clang/Driver/Compilation.h"
-//#include "clang/Driver/Driver.h"
-//#include "llvm/System/Host.h"
-//#include "clang/Frontend/Utils.h"
-
 #include "clang/Basic/SourceManager.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "clang/Frontend/CodeGenAction.h"
@@ -86,6 +80,8 @@ void *DistccClientServer::RequestThread() {
     }
 	std::vector<std::string> args = std::vector<std::string>();
 	args.push_back("test2.c");
+	args.push_back("-o");
+	args.push_back("foo.o");
 	args.push_back("-resource-dir");
 	args.push_back("/home/joshua/llvm/Debug/lib/clang/1.5");
 	args.push_back("-fdollars-in-identifiers");
@@ -232,20 +228,20 @@ void *DistccClientServer::CompilerThread() {
 		llvm::LLVMContext llvmc;
 		Clang.setLLVMContext(&llvmc);
 
-        // set the output file
-        Clang.clearOutputFiles(false);
-        std::string objectCode;
-        llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(objectCode);
-        llvm::sys::Path Path = llvm::sys::Path::GetCurrentDirectory();
-        llvm::StringRef PathName(Path.getBasename());
-        Clang.addOutputFile(PathName, OS);
-        llvm::errs() << "set output file\n";
-
         // compile
         llvm::errs() << "start compilation\n";
         EmitObjAction E;
+        //EmitAssemblyAction E;
         E.BeginSourceFile(Clang, sourceName);
-        //E.Execute();
+
+        // set output file
+        Clang.clearOutputFiles(false);
+        std::string objectCode;
+        llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(objectCode);
+        Clang.addOutputFile("source.s", OS);
+        llvm::errs() << "set output file\n";
+
+        E.Execute();
 		E.EndSourceFile();
         llvm::errs() << "finished compilation\n";
 
