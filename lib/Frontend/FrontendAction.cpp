@@ -213,12 +213,10 @@ void ASTFrontendAction::ExecuteAction() {
   if (hasCodeCompletionSupport() &&
       !CI.getFrontendOpts().CodeCompletionAt.FileName.empty())
     CI.createCodeCompletionConsumer();
-
   // Use a code completion consumer?
   CodeCompleteConsumer *CompletionConsumer = 0;
   if (CI.hasCodeCompletionConsumer())
     CompletionConsumer = &CI.getCodeCompletionConsumer();
-
   ParseAST(CI.getPreprocessor(), &CI.getASTConsumer(), CI.getASTContext(),
            CI.getFrontendOpts().ShowStats,
            usesCompleteTranslationUnit(), CompletionConsumer);

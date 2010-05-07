@@ -342,8 +342,7 @@ void DistributeAndPreprocessAction::ExecuteAction() {
 }
 
 void StartClientServerAction::ExecuteAction() {
-    CompilerInstance &CI = getCompilerInstance();
-	DistccClientServer d(CI);
+	DistccClientServer d;
 	llvm::errs() << "Started Distributed server\n";
 	llvm::errs().flush();
 }

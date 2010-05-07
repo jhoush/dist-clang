@@ -14,6 +14,9 @@
 #include <queue>
 #include <string>
 
+// FIXME: Stop using zmq
+#include <zmq.hpp>
+
 namespace clang {
 class DistccClientServer { 
 private:	
@@ -22,8 +25,7 @@ private:
         llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags;
   
         public:
-        explicit StoredDiagnosticClient(
-                       llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags)
+        explicit StoredDiagnosticClient(llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags)
            : StoredDiags(StoredDiags) { }
    
         void HandleDiagnostic(Diagnostic::Level Level, const DiagnosticInfo &Info) {
@@ -44,7 +46,6 @@ private:
     std::queue<CompilerWork> workQueue; // queue holding all the assigned work
     pthread_mutex_t workQueueMutex; // mutex protecting the work queue
     pthread_cond_t  recievedWork;
-    CompilerInstance *CI;
     
     pthread_t requestThread;
     pthread_t compilerThread;
@@ -59,7 +60,7 @@ private:
     void startClientServer();
     
 public:
-    DistccClientServer(clang::CompilerInstance &CI);
+    DistccClientServer();
     ~DistccClientServer();
     
 };
