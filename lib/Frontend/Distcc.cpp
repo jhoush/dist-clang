@@ -138,7 +138,10 @@ void Distcc::startServer(struct sockaddr_un &addr){
 		close(acceptSocket);
 	}
 	
-	pthread_exit(NULL);
+    void* status;
+    pthread_join(acceptThread, &status);
+    pthread_join(preprocessThread, &status);
+	pthread_join(receiveThread, &status);
 }
 
 // This function's job is to preprocess files and send files to slaves
@@ -458,7 +461,7 @@ void *Distcc::ConnectToSlaves(){
 			std::string addr(startChar, curChar - startChar);
 			startChar = curChar+1;
 			
-			zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P);
+			zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P); 
 			//NOTE: This is async connect, so it is fast, but the connection is not guaranteed to succeed!
 			s->connect(addr.c_str());
 			slaves.push_back(s);
