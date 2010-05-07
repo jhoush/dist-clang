@@ -19,21 +19,25 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Frontend/FrontendOptions.h"
 
+
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/System/Path.h"
 #include "llvm/LLVMContext.h"
 
-// FIXME: Replace UNIX-specific operations with system-agnostc ones
-#include <pthread.h>
+
 #include <iostream>
 #include <fstream>
 #include <time.h>
+#include <list>
+#include <utility>
+
+// FIXME: Replace UNIX-specific operations with system-agnostc ones
+#include <pthread.h>
 
 // FIXME: stop using zmq
 
 using namespace clang;
-//using namespace clang::driver;
 
 DistccClientServer::DistccClientServer(CompilerInstance &CI) {
     this->CI = &CI;
@@ -80,8 +84,8 @@ void *DistccClientServer::RequestThread() {
     }
 	std::vector<std::string> args = std::vector<std::string>();
 	args.push_back("test2.c");
-	args.push_back("-o");
-	args.push_back("foo.o");
+	//args.push_back("-o");
+	//args.push_back("foo.o");
 	args.push_back("-resource-dir");
 	args.push_back("/home/joshua/llvm/Debug/lib/clang/1.5");
 	args.push_back("-fdollars-in-identifiers");
@@ -230,18 +234,32 @@ void *DistccClientServer::CompilerThread() {
 
         // compile
         llvm::errs() << "start compilation\n";
-        EmitObjAction E;
-        //EmitAssemblyAction E;
+        //EmitObjAction E;
+        EmitAssemblyAction E;
         E.BeginSourceFile(Clang, sourceName);
 
         // set output file
-        Clang.clearOutputFiles(false);
+        //Clang.clearOutputFiles(false);
         std::string objectCode;
-        llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(objectCode);
-        Clang.addOutputFile("source.s", OS);
-        llvm::errs() << "set output file\n";
+        //llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(objectCode);
+        //Clang.addOutputFile("source.s", OS);
+        //llvm::errs() << "set output file\n";
+
+        /*
+		std::list<std::pair <std::string, llvm::raw_ostream *> > foo = (std::list<std::pair <std::string, llvm::raw_ostream *> >) Clang.getOutputFileList();
+
+		while (foo.size() > 0) {
+            std::pair<std::string, llvm::raw_ostream *> tmp = foo.front();
+            foo.pop_front();
+            llvm::errs() << tmp.first << "\n";
+		}*/
 
         E.Execute();
+
+        const llvm::MemoryBuffer* mb = SM.getMemoryBufferForFile(FM.getFile("source.s"));
+        //llvm::errs() << mb->getBuffer()  << "\n";
+        objectCode = mb->getBuffer();
+        
 		E.EndSourceFile();
         llvm::errs() << "finished compilation\n";
 
