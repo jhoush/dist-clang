@@ -11,31 +11,26 @@
 #include "clang/Frontend/Distcc.h"
 
 #include "clang/Frontend/TextDiagnosticBuffer.h"
-#include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Basic/SourceManager.h"
-#include "llvm/Support/MemoryBuffer.h"
 #include "clang/Frontend/CodeGenAction.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/TargetInfo.h"
-#include "clang/Frontend/FrontendOptions.h"
 
+//#include "clang/Frontend/FrontendOptions.h"
+//#include "clang/Frontend/TextDiagnosticPrinter.h"
+//#include "llvm/Support/raw_ostream.h"
 
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/System/Path.h"
 #include "llvm/LLVMContext.h"
-
 
 #include <iostream>
 #include <fstream>
-#include <time.h>
-#include <list>
-#include <utility>
 
 // FIXME: Replace UNIX-specific operations with system-agnostc ones
 #include <pthread.h>
 
 // FIXME: stop using zmq
+//#include <zeromq.hpp>
 
 using namespace clang;
 
@@ -84,6 +79,7 @@ void *DistccClientServer::RequestThread() {
     }
 	std::vector<std::string> args = std::vector<std::string>();
 	args.push_back("test2.c");
+	/*
 	//args.push_back("-o");
 	//args.push_back("foo.o");
 	args.push_back("-resource-dir");
@@ -113,7 +109,7 @@ void *DistccClientServer::RequestThread() {
 	args.push_back("-target-feature");
 	args.push_back("+sse");
 	args.push_back("-target-feature");
-	args.push_back("-sse3");
+	args.push_back("-sse3");*/
 	int len;
 	char* tmp = Distcc::serializeArgVector(args, len);
 	std::string sArgs(tmp, len);
@@ -160,7 +156,7 @@ void *DistccClientServer::RequestThread() {
     llvm::errs() << "request thread: exit\n";
     llvm::errs().flush();
     
-    return NULL; // FIXME: shouldn't actually return this
+    return NULL; // suppress warning
 }
 
 void *DistccClientServer::CompilerThread() {
@@ -220,7 +216,7 @@ void *DistccClientServer::CompilerThread() {
         SourceManager& SM = Clang.getSourceManager();
         FileManager& FM = Clang.getFileManager();
         std::string sourceName("source");
-        const FileEntry* fe = FM.getVirtualFile(sourceName, strlen(Buffer->getBufferStart()), time(NULL));
+        const FileEntry* fe = FM.getVirtualFile(sourceName, strlen(Buffer->getBufferStart()), 0);//time(NULL));
         SM.overrideFileContents(fe, Buffer);
         llvm::errs() << "overrode source file\n";
         
@@ -264,9 +260,8 @@ void *DistccClientServer::CompilerThread() {
         llvm::errs() << "finished compilation\n";
 
         // FIXME: remove, for test only
-        std::string fname("a.out");
         std::string errName("foo");
-        llvm::raw_fd_ostream f(fname.c_str(), errName, (unsigned int) 0);
+        llvm::raw_fd_ostream f("a.out", errName, (unsigned int) 0);
         f << objectCode;
         f.close();
         llvm::errs() << "wrote output file\n";
@@ -281,7 +276,7 @@ void *DistccClientServer::CompilerThread() {
     llvm::errs() << "compiler thread: exit\n";
     llvm::errs().flush();
         
-    return NULL; // FIXME: shouldn't actually return this
+    return NULL;  // suppress warning
 }
 
 // Static pthread helper method

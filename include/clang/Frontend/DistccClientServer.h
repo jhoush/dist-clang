@@ -9,12 +9,29 @@
 
 #include "clang/Frontend/CompilerInstance.h"
 #include "llvm/System/Path.h"
+#include "clang/Basic/Diagnostic.h"
+
 #include <queue>
 #include <string>
 
 namespace clang {
 class DistccClientServer { 
 private:	
+
+    class StoredDiagnosticClient : public DiagnosticClient {
+        llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags;
+  
+        public:
+        explicit StoredDiagnosticClient(
+                       llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags)
+           : StoredDiags(StoredDiags) { }
+   
+        void HandleDiagnostic(Diagnostic::Level Level, const DiagnosticInfo &Info) {
+            StoredDiags.push_back(StoredDiagnostic(Level, Info));
+        }
+    };
+
+
     // struct to handle work data
     struct CompilerWork {
         CompilerWork(std::string a, std::string s):args(a),source(s){}
