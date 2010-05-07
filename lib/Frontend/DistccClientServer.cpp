@@ -138,7 +138,8 @@ void *DistccClientServer::CompilerThread() {
         llvm::errs() << "retrieved work from queue\n";
 
         llvm::StringRef Source(work.source);
-        std::vector<std::string> args = Distcc::deserializeArgVector((char*)work.args.data(), (int) work.args.size());
+        std::vector<std::string> args = Distcc::deserializeArgVector((char*)work.args.data(),
+                                                                     (int) work.args.size());
 		llvm::SmallVector<const char *, 32> argAddresses;
 		for (unsigned i=0;i<args.size();i++){
 		    if (args[i] == "-o") {
@@ -149,7 +150,6 @@ void *DistccClientServer::CompilerThread() {
 			argAddresses.push_back(args[i].c_str());
 		}
 		llvm::errs() << "deserialized args\n";
-
 
 		// setup compiler instance
 		llvm::SmallVectorImpl<StoredDiagnostic> StoredDiags(10);
@@ -184,7 +184,7 @@ void *DistccClientServer::CompilerThread() {
         SourceManager& SM = Clang.getSourceManager();
         FileManager& FM = Clang.getFileManager();
         std::string sourceName("source");
-        const FileEntry* fe = FM.getVirtualFile(sourceName, strlen(Buffer->getBufferStart()), 0);//time(NULL));
+        const FileEntry* fe = FM.getVirtualFile(sourceName, strlen(Buffer->getBufferStart()), 0);
         SM.overrideFileContents(fe, Buffer);
         llvm::errs() << "overrode source file\n";
 
@@ -223,7 +223,7 @@ void *DistccClientServer::CompilerThread() {
     llvm::errs() << "compiler thread: exit\n";
     llvm::errs().flush();
         
-    return NULL;  // suppress warning
+    return NULL; // suppress warning
 }
 
 // Static pthread helper method
