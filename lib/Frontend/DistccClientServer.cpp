@@ -22,7 +22,6 @@
 #include <pthread.h>
 
 // FIXME: stop using zmq
-#undef error_t
 #include <zmq.hpp>
 
 // FIXME: remove these, for testing only
@@ -162,50 +161,62 @@ void *DistccClientServer::CompilerThread() {
 		CompilerInvocation::CreateFromArgs(Invocation, (const char **)argAddresses.begin(),
 										   (const char **)argAddresses.end(), Clang.getDiagnostics());
 		Clang.setInvocation(&Invocation);
-		llvm::errs() << "set up compiler instance\n";
-
-        // tweak frontend options
-        FrontendOptions& FeOpts = Clang.getFrontendOpts();
-        FeOpts.ProgramAction = frontend::EmitObj;
-        std::vector<std::pair<FrontendOptions::InputKind, std::string> > opts;
-        std::pair<FrontendOptions::InputKind, std::string> p(FeOpts.IK_PreprocessedCXX, "source");
-        opts.push_back(p);
-        FeOpts.Inputs = opts;
-        llvm::errs() << "tweaked frontend options\n";
-    
+		
 		Clang.createFileManager();
 		Clang.createSourceManager();
+		
+		
+		// setup source file
+        llvm::MemoryBuffer* Buffer = llvm::MemoryBuffer::getMemBuffer(Source);
+        SourceManager& SM = Clang.getSourceManager();
+		
+		llvm::StringRef dummyPath("<dummy file>");
+		const FileEntry *FE = Clang.getFileManager().getVirtualFile(dummyPath, Buffer->getBufferSize(), 0);
+		SM.overrideFileContents(FE, Buffer);
+
+		
+		//Create stream to send object code to
+		llvm::StringRef emptyPath("");
+		std::string objectCode; 
+		Clang.clearOutputFiles(false);
+		//FIXME: use .take()?
+		llvm::raw_string_ostream objectCodeStream(objectCode);
+		
+		llvm::errs() << "set up compiler instance\n";
+    
         Clang.setTarget(TargetInfo::CreateTargetInfo(Clang.getDiagnostics(),
                                                      Clang.getTargetOpts()));
         Clang.getTarget().setForcedLangOptions(Clang.getLangOpts());
+		
+		Clang.createPreprocessor();
 
-        // setup source file
-        llvm::MemoryBuffer* Buffer = llvm::MemoryBuffer::getMemBuffer(Source, "source");
-        SourceManager& SM = Clang.getSourceManager();
-        FileManager& FM = Clang.getFileManager();
-        std::string sourceName("source");
-        const FileEntry* fe = FM.getVirtualFile(sourceName, strlen(Buffer->getBufferStart()), 0);
-        SM.overrideFileContents(fe, Buffer);
+	
+		
         llvm::errs() << "overrode source file\n";
 
-        Clang.createPreprocessor();
 		llvm::LLVMContext llvmc;
 		Clang.setLLVMContext(&llvmc);
-
+		
+		
         // compile
         llvm::errs() << "start compilation\n";
-        //EmitObjAction E;
-        EmitAssemblyAction E;
-        E.BeginSourceFile(Clang, sourceName);
+        EmitObjAction E;
+		
+		//FIXME: Remove this ugly hack to get output to redirect to string
+		//FIXME: use .take()?		
+		E.setOutputStream(&objectCodeStream);
+		
+		E.BeginSourceFile(Clang, dummyPath);
+		
         E.Execute();
 
         // get the object code
-        const llvm::MemoryBuffer* mb = SM.getMemoryBufferForFile(FM.getFile("source.s"));
-        std::string objectCode = mb->getBuffer();
-        Clang.clearOutputFiles(true);
 		E.EndSourceFile();
+
         llvm::errs() << "finished compilation\n";
 
+		llvm::errs() << "Object code size: " << objectCode.size() << "\n";
+		
         // FIXME: remove, for test only
         std::string errName("foo");
         llvm::raw_fd_ostream f("a.out", errName, (unsigned int) 0);

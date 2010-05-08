@@ -529,7 +529,7 @@ void BackendConsumer::InlineAsmDiagHandler2(const llvm::SMDiagnostic &D,
 
 //
 
-CodeGenAction::CodeGenAction(unsigned _Act) : Act(_Act) {}
+CodeGenAction::CodeGenAction(unsigned _Act) : Act(_Act) { outputStream = NULL; }
 
 CodeGenAction::~CodeGenAction() {}
 
@@ -552,30 +552,41 @@ llvm::Module *CodeGenAction::takeModule() {
 ASTConsumer *CodeGenAction::CreateASTConsumer(CompilerInstance &CI,
                                               llvm::StringRef InFile) {
   BackendAction BA = static_cast<BackendAction>(Act);
-  llvm::OwningPtr<llvm::raw_ostream> OS;
-  switch (BA) {
-  case Backend_EmitAssembly:
-    OS.reset(CI.createDefaultOutputFile(false, InFile, "s"));
-    break;
-  case Backend_EmitLL:
-    OS.reset(CI.createDefaultOutputFile(false, InFile, "ll"));
-    break;
-  case Backend_EmitBC:
-    OS.reset(CI.createDefaultOutputFile(true, InFile, "bc"));
-    break;
-  case Backend_EmitNothing:
-    break;
-  case Backend_EmitObj:
-    OS.reset(CI.createDefaultOutputFile(true, InFile, "o"));
-    break;
-  }
-  if (BA != Backend_EmitNothing && !OS)
-    return 0;
+	if(!outputStream){
+	  llvm::OwningPtr<llvm::raw_ostream> OS;
+	  switch (BA) {
+	  case Backend_EmitAssembly:
+		OS.reset(CI.createDefaultOutputFile(false, InFile, "s"));
+		break;
+	  case Backend_EmitLL:
+		OS.reset(CI.createDefaultOutputFile(false, InFile, "ll"));
+		break;
+	  case Backend_EmitBC:
+		OS.reset(CI.createDefaultOutputFile(true, InFile, "bc"));
+		break;
+	  case Backend_EmitNothing:
+		break;
+	  case Backend_EmitObj:
+		OS.reset(CI.createDefaultOutputFile(true, InFile, "o"));
+		break;
+	  }
+	  if (BA != Backend_EmitNothing && !OS)
+		return 0;
 
-  return new BackendConsumer(BA, CI.getDiagnostics(), CI.getLangOpts(),
-                             CI.getCodeGenOpts(), CI.getTargetOpts(),
-                             CI.getFrontendOpts().ShowTimers, InFile, OS.take(),
-                             CI.getLLVMContext());
+	  return new BackendConsumer(BA, CI.getDiagnostics(), CI.getLangOpts(),
+								 CI.getCodeGenOpts(), CI.getTargetOpts(),
+								 CI.getFrontendOpts().ShowTimers, InFile, OS.take(),
+								 CI.getLLVMContext());
+	}
+	else{
+		return new BackendConsumer(BA, CI.getDiagnostics(), CI.getLangOpts(),
+								   CI.getCodeGenOpts(), CI.getTargetOpts(),
+								   CI.getFrontendOpts().ShowTimers, InFile, outputStream,
+								   CI.getLLVMContext());
+	}
+}
+void CodeGenAction::setOutputStream(llvm::raw_ostream *theStream){
+	outputStream = theStream;
 }
 
 EmitAssemblyAction::EmitAssemblyAction()
