@@ -36,16 +36,20 @@ private:
 
     // struct to handle work data
     struct CompilerWork {
-        CompilerWork(std::string a, std::string s):args(a),source(s){}
+        CompilerWork(uint64_t id, std::string a, std::string s)
+                     : uniqueID(id), args(a) ,source(s){}
         
+        uint64_t uniqueID;
         std::string args;
         std::string source;
-    };
+    }; 
     
     // local vars 
     std::queue<CompilerWork> workQueue; // queue holding all the assigned work
     pthread_mutex_t workQueueMutex; // mutex protecting the work queue
     pthread_cond_t  recievedWork;
+    zmq::socket_t *master;
+    zmq::context_t zmqContext;
     
     pthread_t requestThread;
     pthread_t compilerThread;

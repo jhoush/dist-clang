@@ -30,7 +30,10 @@
 
 using namespace clang;
 
-DistccClientServer::DistccClientServer() {
+DistccClientServer::DistccClientServer()
+: zmqContext(2, 2) {
+    master = new zmq::socket_t(zmqContext, ZMQ_P2P);
+    
     // initialize synchronization tools
     pthread_mutex_init(&workQueueMutex, NULL);
     pthread_cond_init(&recievedWork, NULL);
@@ -79,37 +82,51 @@ void *DistccClientServer::RequestThread() {
 	char* tmp = Distcc::serializeArgVector(args, len);
 	std::string sArgs(tmp, len);
 	free(tmp);
-	CompilerWork work = CompilerWork(sArgs, source);
+	CompilerWork work = CompilerWork(0, sArgs, source);
     pthread_mutex_lock(&workQueueMutex);
     workQueue.push(work);
     pthread_cond_signal(&recievedWork);
     pthread_mutex_unlock(&workQueueMutex);
     llvm::errs().flush();
     
-    // loop
     while (1) {
         break;
-        //int lengthRead = 0;
-        //int sizeOfArgs = 0;
-        // recieve length of args
-        /*if ((lengthRead = revc(masterFd, &sizeOfArgs, sizeof(sizeOfArgs), MSG_WAITALL)) < (int)sizeof(sizeOfArgs)) {
-            llvm::errs() << "error recieving size of args from server" << lengthRead << "\n";
-            close(masterFd);
-            return;
-        }*/
-
-        // recieve args
-        llvm::errs() << "got args from master\n";
+        uint64_t uniqueID;
+        uint32_t argLen;
+        zmq::message_t msg;
         
-        // get source from master
-
-        llvm::errs() << "got source from master\n";
-        // FIXME: remove the next two lines
-        char* args = new char();
-        char* source = new char();
+        // receive args
+        if (master->recv(&msg) < 0) {
+            // handle an error
+        }
         
+        // process message
+        char *msgData = (char *)msg.data();
+        int offset = 0;
+        memcpy(&uniqueID, &msgData[offset], sizeof(uniqueID));
+        offset += sizeof(uniqueID);
+        memcpy(&argLen, &msgData[offset], sizeof(argLen));
+        
+        // copy args
+        offset += sizeof(argLen);
+        char *tmp = new char[argLen];
+        memcpy(tmp, &msgData[offset], argLen);
+        std::string args((const char *) tmp, argLen);
+        delete tmp;
+        
+        // copy source
+        offset += argLen;
+        int sourceSize = msg.size() - offset;
+        tmp = new char[sourceSize];
+        memcpy(tmp, &msgData[offset], sourceSize);
+        std::string source((const char *) tmp, sourceSize);
+        delete tmp;
+        
+        delete msgData;
+
+        // add to work queue
         pthread_mutex_lock(&workQueueMutex);
-        workQueue.push(CompilerWork(args, source));
+        workQueue.push(CompilerWork(uniqueID, args, source));
         pthread_cond_signal(&recievedWork);
         pthread_mutex_unlock(&workQueueMutex);
 
@@ -123,7 +140,6 @@ void *DistccClientServer::RequestThread() {
 }
 
 void *DistccClientServer::CompilerThread() {
-    // loop
     // FIXME: should timeout at some point
     while (1) {
         // grab from workQueue
@@ -136,6 +152,7 @@ void *DistccClientServer::CompilerThread() {
         pthread_mutex_unlock(&workQueueMutex);
         llvm::errs() << "retrieved work from queue\n";
 
+        uint64_t uniqueID = work.uniqueID;
         llvm::StringRef Source(work.source);
         std::vector<std::string> args = Distcc::deserializeArgVector((char*)work.args.data(),
                                                                      (int) work.args.size());
@@ -190,8 +207,6 @@ void *DistccClientServer::CompilerThread() {
 		
 		Clang.createPreprocessor();
 
-	
-		
         llvm::errs() << "overrode source file\n";
 
 		llvm::LLVMContext llvmc;
@@ -228,7 +243,39 @@ void *DistccClientServer::CompilerThread() {
         Clang.takeDiagnosticClient();
         Clang.takeInvocation();
         Clang.takeLLVMContext();
-                
+        
+        uint32_t diagLen = StoredDiags.size();
+        
+        
+        // create message
+        uint32_t totalLen = sizeof(uniqueID) + sizeof(diagLen) +
+                            StoredDiags.size() + objectCode.size();
+        zmq::message_t msg(totalLen);
+        char *offset = (char *)msg.data();
+        memcpy(offset, &uniqueID, sizeof(uniqueID));
+        offset += sizeof(uniqueID);
+        memcpy(offset, &diagLen, sizeof(diagLen));
+        offset += diagLen;
+
+        // serialize diagnostics
+        std::string diags;
+        llvm::raw_string_ostream diagsStream(diags);
+        llvm::SmallVectorImpl<StoredDiagnostic>::iterator diagIterator = StoredDiags.begin();
+        while (diagIterator != StoredDiags.end()) {
+            diagIterator->Serialize(diagsStream); // might work
+            diagsStream << "\0";
+            ++diagIterator;
+        }
+        
+        memcpy(offset, diags.c_str(), diagLen);
+        offset += diagLen;
+        memcpy(offset, objectCode.c_str(), objectCode.size());
+        
+        master->send(msg);
+        
+        
+        delete offset;
+        
         break;
     }
     llvm::errs() << "compiler thread: exit\n";
