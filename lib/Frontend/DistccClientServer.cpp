@@ -33,6 +33,7 @@ using namespace clang;
 DistccClientServer::DistccClientServer()
 : zmqContext(2, 2) {
     master = new zmq::socket_t(zmqContext, ZMQ_P2P);
+	master->bind("tcp://127.0.0.1:5555");
     
     // initialize synchronization tools
     pthread_mutex_init(&workQueueMutex, NULL);
@@ -232,30 +233,11 @@ void *DistccClientServer::CompilerThread() {
 
 		llvm::errs() << "Object code size: " << objectCode.size() << "\n";
 		
-        // FIXME: remove, for test only
-        std::string errName("foo");
-        llvm::raw_fd_ostream f("a.out", errName, (unsigned int) 0);
-        f << objectCode;
-        f.close();
-        llvm::errs() << "wrote output file\n";
-        
         // avoid calling destructors twice
         Clang.takeDiagnosticClient();
         Clang.takeInvocation();
         Clang.takeLLVMContext();
         
-        uint32_t diagLen = StoredDiags.size();
-        
-        
-        // create message
-        uint32_t totalLen = sizeof(uniqueID) + sizeof(diagLen) +
-                            StoredDiags.size() + objectCode.size();
-        zmq::message_t msg(totalLen);
-        char *offset = (char *)msg.data();
-        memcpy(offset, &uniqueID, sizeof(uniqueID));
-        offset += sizeof(uniqueID);
-        memcpy(offset, &diagLen, sizeof(diagLen));
-        offset += diagLen;
 
         // serialize diagnostics
         std::string diags;
@@ -263,11 +245,21 @@ void *DistccClientServer::CompilerThread() {
         llvm::SmallVectorImpl<StoredDiagnostic>::iterator diagIterator = StoredDiags.begin();
         while (diagIterator != StoredDiags.end()) {
             diagIterator->Serialize(diagsStream); // might work
-            diagsStream << "\0";
             ++diagIterator;
         }
+		
+		uint32_t diagLen = diags.size();
+		// create message
+        uint32_t totalLen = sizeof(uniqueID) + sizeof(diagLen) +
+		diags.size() + objectCode.size();
+        zmq::message_t msg(totalLen);
+        char *offset = (char *)msg.data();
+        memcpy(offset, &uniqueID, sizeof(uniqueID));
+        offset += sizeof(uniqueID);
+        memcpy(offset, &diagLen, sizeof(diagLen));
+        offset += diagLen;		
         
-        memcpy(offset, diags.c_str(), diagLen);
+        memcpy(offset, diags.data(), diagLen);
         offset += diagLen;
         memcpy(offset, objectCode.c_str(), objectCode.size());
         
@@ -293,4 +285,6 @@ void *DistccClientServer::pthread_CompilerThread(void *ctx){
     return ((DistccClientServer *)ctx)->CompilerThread();
 }
 
-DistccClientServer::~DistccClientServer(){}
+DistccClientServer::~DistccClientServer(){
+	delete master;
+}

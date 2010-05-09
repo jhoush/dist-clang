@@ -151,12 +151,14 @@ void *Distcc::PreprocessThread(){
 	FileManager fm; // Outside of loop so we have consistent cache
 	while(1){
 		
+		while(clientsAwaitingDistribution.empty())
+			usleep(50); //FIXME: Tune param/use cond var
 		clientsAwaitingDistributionMutex.acquire(); 
 		//Pop file to send off queue
 		DistccClient client = clientsAwaitingDistribution.front();
 		clientsAwaitingDistribution.pop();
+		llvm::errs() << "Preprocessing" << "\n";
 		clientsAwaitingDistributionMutex.release();
-
 		//If no data sent, preprocess, and send out
 		std::string preprocessedSource;
 		llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(preprocessedSource);
@@ -227,6 +229,7 @@ void *Distcc::PreprocessThread(){
 		while(!slaveMutexes[slaveNo]->tryacquire()){
 			slaveNo = (slaveNo + 1) % slaves.size();
 		}
+		llvm::errs() << "Sending to slave no " << slaveNo << "\n";
 		slaves[slaveNo]->send(msg);
 		currentSlave = slaveNo;
 		slaveMutexes[slaveNo]->release();
@@ -332,13 +335,15 @@ void *Distcc::AcceptThread(){
 		DistccClient client;
 		client.fd = fd2;
 		client.args = deserializeArgVector(argString, sizeOfString);
-
+		
+		llvm::errs() << "Recieved args of length " << client.args.size() << "\n";
 		
 		free(argString);
 		
 		//Stick the client onto the end of the list
 		clientsAwaitingDistributionMutex.acquire();
 		clientsAwaitingDistribution.push(client);
+		llvm::errs() << "Accepting" << "\n";
 		clientsAwaitingDistributionMutex.release();
 	}
 	return NULL; //Should never hit
@@ -464,6 +469,7 @@ void *Distcc::ConnectToSlaves(){
 			zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P); 
 			//NOTE: This is async connect, so it is fast, but the connection is not guaranteed to succeed!
 			s->connect(addr.c_str());
+			llvm::errs() << "Connected to slave " << addr.c_str() << "\n";
 			slaves.push_back(s);
 			slaveMutexes.push_back(new sys::Mutex()); //Push lock onto socket lock vector
 		}
@@ -499,7 +505,7 @@ void *Distcc::ReceiveThread(){
 			
 			clientsAwaitingObjectCodeMutex.acquire();
 			if(clientsAwaitingObjectCode.find(uniqueID)==clientsAwaitingObjectCode.end()){
-				llvm::errs() << "No client found with unique ID " << uniqueID << "\n";
+				llvm::errs() << "No client found with unique ID " << uniqueID << ", size " << msg.size() <<"\n";
 				return NULL;
 			}
 			DistccClient client = clientsAwaitingObjectCode[uniqueID];
