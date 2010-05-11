@@ -120,6 +120,8 @@ void Distcc::startServer(struct sockaddr_un &addr){
 	
 	
 	ConnectToSlaves(); // This is OK to be nonthreaded b/c connections are created async by zmq
+	
+	llvm::errs() << "Successfully connected to slaves\n";
 
 	// Start server to accept connections
 
@@ -173,7 +175,7 @@ void *Distcc::PreprocessThread(){
 		llvm::SmallVector<const char *, 32> argAddresses;
 		for(unsigned i=0;i<args.size();i++){
 			argAddresses.push_back(args[i].c_str());
-			llvm::errs() << args[i] << "\n";
+			//llvm::errs() << args[i] << "\n";
 		}
 		
 		CompilerInvocation::CreateFromArgs(Invocation, (const char **)argAddresses.begin(),
@@ -212,6 +214,7 @@ void *Distcc::PreprocessThread(){
 		uint64_t uniqueID = counter++;
 		counterMutex.release();
 		
+		llvm::errs() << "Creating message\n";
 		// Compose message
 		zmq::message_t msg(totalLen);
 		char *offset = (char *)msg.data();
@@ -227,6 +230,7 @@ void *Distcc::PreprocessThread(){
 		//Try to find a slave which isn't locked, lock it, send message, release lock
 		unsigned slaveNo = (currentSlave + 1) % slaves.size();
 		while(!slaveMutexes[slaveNo]->tryacquire()){
+		    //llvm::errs() << "Attempting to connect to slave " << slaveNo << "\n";
 			slaveNo = (slaveNo + 1) % slaves.size();
 		}
 		llvm::errs() << "Sending to slave no " << slaveNo << "\n";
@@ -448,7 +452,8 @@ void *Distcc::ConnectToSlaves(){
 	//FIXME: Remove hardcoding!
 	llvm::errs() << "Constructing membuf\n";
 	llvm::errs().flush();
-	MemoryBuffer *Buf = MemoryBuffer::getFile("/Volumes/Data/Users/mike/Desktop/config.txt");
+	//MemoryBuffer *Buf = MemoryBuffer::getFile("/Volumes/Data/Users/mike/Desktop/config.txt");
+	MemoryBuffer *Buf = MemoryBuffer::getFile("/home/joshua/llvm/Debug/bin/config.txt");
 	llvm::errs() << "Finished constructing membuf\n";
 	llvm::errs().flush();
 	const char *start = Buf->getBufferStart();	
@@ -465,11 +470,18 @@ void *Distcc::ConnectToSlaves(){
 		if(*curChar == '\n'){
 			std::string addr(startChar, curChar - startChar);
 			startChar = curChar+1;
-			
 			zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P); 
+			
 			//NOTE: This is async connect, so it is fast, but the connection is not guaranteed to succeed!
 			s->connect(addr.c_str());
 			llvm::errs() << "Connected to slave " << addr.c_str() << "\n";
+			
+			std::string foo("hello!");
+			zmq::message_t msg(sizeof(foo));
+			char *offset = (char *)msg.data();
+			memcpy(offset, &foo, sizeof(foo));
+			s->send(msg);
+			
 			slaves.push_back(s);
 			slaveMutexes.push_back(new sys::Mutex()); //Push lock onto socket lock vector
 		}
@@ -480,8 +492,10 @@ void *Distcc::ConnectToSlaves(){
 //Recieve messages from slaves continuously, and write out object code as relevant
 void *Distcc::ReceiveThread(){
 	while(1){
+	    continue;   //FIXME: remove
 		int slaveSize = slaves.size();
 		for(int i=0;i<slaveSize;i++){
+		    llvm::errs() << "trying to receive to slave " << i << "\n";
 			zmq::message_t msg; //FIXME: Move this out of the loop to reuse message?
 			if(!slaveMutexes[i]->tryacquire())
 				continue; //If we can't get the lock, just move onto next socket
