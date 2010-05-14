@@ -33,8 +33,10 @@ using namespace clang;
 DistccClientServer::DistccClientServer()
 : zmqContext(2, 2) {
     master = new zmq::socket_t(zmqContext, ZMQ_P2P);
-	master->bind("tcp://127.0.0.1:5555");
-    
+    master->bind("tcp://192.168.0.9:5555");
+    zmq::message_t msg;
+    master->recv(&msg);
+
     // initialize synchronization tools
     pthread_mutex_init(&workQueueMutex, NULL);
     pthread_cond_init(&recievedWork, NULL);
@@ -64,6 +66,7 @@ void DistccClientServer::startClientServer() {
 }
 
 void *DistccClientServer::RequestThread() {
+    /*
     // FIXME: remove this, for test only
     std::ifstream s("test2.c");
     std::string source = "";
@@ -89,17 +92,23 @@ void *DistccClientServer::RequestThread() {
     pthread_cond_signal(&recievedWork);
     pthread_mutex_unlock(&workQueueMutex);
     llvm::errs().flush();
+    */
     
     while (1) {
-        break;
+        llvm::errs() << "Waiting for more work\n";
         uint64_t uniqueID;
         uint32_t argLen;
         zmq::message_t msg;
         
         // receive args
         if (master->recv(&msg) < 0) {
+            llvm::errs() << "err receiving message\n";
             // handle an error
         }
+        
+        llvm::errs() << "got message\n";
+        llvm::errs() << msg.data() << "\n";
+        break;
         
         // process message
         char *msgData = (char *)msg.data();
@@ -132,6 +141,9 @@ void *DistccClientServer::RequestThread() {
         pthread_mutex_unlock(&workQueueMutex);
 
         llvm::errs() << "added work to queue\n";
+        
+        // FIXME: remove
+        break;
     }
         
     llvm::errs() << "request thread: exit\n";
@@ -268,6 +280,7 @@ void *DistccClientServer::CompilerThread() {
         
         delete offset;
         
+        // FIXME: remove
         break;
     }
     llvm::errs() << "compiler thread: exit\n";
