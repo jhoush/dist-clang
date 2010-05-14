@@ -709,7 +709,10 @@ void Driver::BuildActions(const ArgList &Args, ActionList &Actions) const {
       // arguments. Just special case here.
       if (Phase == phases::Assemble && Current->getType() != types::TY_PP_Asm)
         continue;
-
+      // Also skip over assembler for distribute
+      if(Phase == phases::Assemble && Args.hasArg(options::OPT_distribute))
+        continue;
+    
       // Otherwise construct the appropriate action.
       Current.reset(ConstructPhaseAction(Args, Phase, Current.take()));
       if (Current->getType() == types::TY_Nothing)
@@ -900,7 +903,7 @@ static const Tool &SelectToolForJob(Compilation &C, const ToolChain *TC,
       Inputs = &(*Inputs)[0]->getInputs();
       ToolForJob = &Compiler;
     }
-  }
+  }  
 
   // Otherwise use the tool for the current job.
   if (!ToolForJob)

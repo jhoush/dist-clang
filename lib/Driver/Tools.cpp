@@ -740,18 +740,26 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
                          const InputInfoList &Inputs,
                          const ArgList &Args,
                          const char *LinkingOutput) const {
+  
   bool KernelOrKext = Args.hasArg(options::OPT_mkernel,
                                   options::OPT_fapple_kext);
   const Driver &D = getToolChain().getDriver();
   ArgStringList CmdArgs;
 
   assert(Inputs.size() == 1 && "Unable to handle multiple inputs.");
-
+  
   // Invoke ourselves in -cc1 mode.
   //
   // FIXME: Implement custom jobs for internal actions.
   CmdArgs.push_back("-cc1");
 
+  if(Args.hasArg(options::OPT_distribute)){
+    //Pass on -distribute to client!
+    //We don't want any other options passed on. We know we want an obj file
+    //FIXME: How should clang -cc1 -S me.c be handled?
+    CmdArgs.push_back("-distribute");
+  }
+  
   // Add the "effective" target triple.
   CmdArgs.push_back("-triple");
   std::string TripleStr = getEffectiveClangTriple(D, getToolChain(), Args);
@@ -781,13 +789,16 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   } else {
     assert(isa<CompileJobAction>(JA) && "Invalid action for clang tool.");
 
+
     if (JA.getType() == types::TY_Nothing) {
       CmdArgs.push_back("-fsyntax-only");
     } else if (JA.getType() == types::TY_LLVMAsm) {
       CmdArgs.push_back("-emit-llvm");
     } else if (JA.getType() == types::TY_LLVMBC) {
       CmdArgs.push_back("-emit-llvm-bc");
-    } else if (JA.getType() == types::TY_PP_Asm) {
+    } else if (JA.getType() == types::TY_PP_Asm && 
+               //FIXME: Remove following special case!
+               !Args.hasArg(options::OPT_distribute)) {
       CmdArgs.push_back("-S");
     } else if (JA.getType() == types::TY_AST) {
       CmdArgs.push_back("-emit-pch");

@@ -211,6 +211,7 @@ def dD : Flag<"-dD">, Group<d_Group>;
 def dM : Flag<"-dM">, Group<d_Group>;
 def dead__strip : Flag<"-dead_strip">;
 def dependency_file : Separate<"-dependency-file">;
+def distribute : Flag<"-distribute">, Flags<[DriverOption]>, HelpText<"Distribute files to distclang cluster">;
 def dumpmachine : Flag<"-dumpmachine">, Flags<[Unsupported]>;
 def dumpspecs : Flag<"-dumpspecs">, Flags<[Unsupported]>;
 def dumpversion : Flag<"-dumpversion">;
