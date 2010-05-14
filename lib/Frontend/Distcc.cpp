@@ -41,7 +41,8 @@
 
 using namespace clang;
 
-//Note: http://beej.us/guide/bgipc/ was used as a reference when making socket code
+// Note: http://beej.us/guide/bgipc/ was used as a reference when making socket
+// code
 
 Distcc::Distcc(CompilerInstance &instance)
 : //FIXME: Determine proper value for app/io threads(respectively)
@@ -83,7 +84,8 @@ zmqContext(2, 2)
 			
 			//Spin until connected.
 			//FIXME: Is 100 us the right amount of time to sleep?
-			while (connect(serverFd, (struct sockaddr *)&remote, sizeof(remote)) == -1)
+			while (connect(serverFd, (struct sockaddr *)&remote,
+                     sizeof(remote)) == -1)
 				usleep(100); 
 			startClient();
 			return;
@@ -100,11 +102,13 @@ zmqContext(2, 2)
 
 
 // Start the Distcc server
-// (i.e. the central process accepting connections from Makefile-spawned processes)
+// (i.e. the central process accepting connections from Makefile-spawned
+// processes)
 void Distcc::startServer(struct sockaddr_un &addr){
 	//Set up socket to recieve connections
 	acceptSocket = socket(AF_UNIX, SOCK_STREAM, 0);
-	if(bind(acceptSocket, (struct sockaddr *)&addr, sizeof(struct sockaddr_un))<0){
+	if(bind(acceptSocket, (struct sockaddr *)&addr,
+          sizeof(struct sockaddr_un))<0){
 		// This means we hit the race condition
 		// (another forked process spawned a server)
 		llvm::errs() << "Error binding to socket(startServer)\n";
@@ -119,7 +123,8 @@ void Distcc::startServer(struct sockaddr_un &addr){
 	}
 	
 	
-	ConnectToSlaves(); // This is OK to be nonthreaded b/c connections are created async by zmq
+	ConnectToSlaves(); // This is OK to be nonthreaded b/c connections are created
+                     // async by zmq
 	
 	llvm::errs() << "Successfully connected to slaves\n";
 
@@ -149,47 +154,63 @@ void Distcc::startServer(struct sockaddr_un &addr){
 // This function's job is to preprocess files and send files to slaves
 
 void *Distcc::PreprocessThread(){
-	//FIXME: Timeout after some period
+	// FIXME: Timeout after some period
 	FileManager fm; // Outside of loop so we have consistent cache
 	while(1){
 		
 		while(clientsAwaitingDistribution.empty())
-			usleep(50); //FIXME: Tune param/use cond var
+			usleep(50); // FIXME: Tune param/use cond var
 		clientsAwaitingDistributionMutex.acquire(); 
-		//Pop file to send off queue
+		// Pop file to send off queue
 		DistccClient client = clientsAwaitingDistribution.front();
 		clientsAwaitingDistribution.pop();
 		llvm::errs() << "Preprocessing" << "\n";
 		clientsAwaitingDistributionMutex.release();
-		//If no data sent, preprocess, and send out
+		// If no data sent, preprocess, and send out
 		std::string preprocessedSource;
-		llvm::raw_string_ostream *OS = new llvm::raw_string_ostream(preprocessedSource);
+		llvm::raw_string_ostream *OS;
+    OS = new llvm::raw_string_ostream(preprocessedSource);
 		
 		
 		TextDiagnosticBuffer DiagsBuffer;
 		CompilerInvocation Invocation;
 		Diagnostic Diags(&DiagsBuffer);
 		
+    
+    // Get input parameter(we explicitly serialize this as the second-to-last
+    // argument.
+    std::string outputFile = client.args[client.args.size()-1];
+    client.outputFile = outputFile;
+    client.args.pop_back();
+        
+    std::string inputFile = client.args[client.args.size()-1];
+    client.args.pop_back();
+    
+    llvm::errs() << "Input file is: " << inputFile << "\n";
+    llvm::errs() << "Output file is: " << outputFile << "\n";
 		
 		std::vector<std::string> args = client.args;
 		llvm::SmallVector<const char *, 32> argAddresses;
 		for(unsigned i=0;i<args.size();i++){
 			argAddresses.push_back(args[i].c_str());
-			//llvm::errs() << args[i] << "\n";
+			llvm::errs() << args[i] << "\n"; // FIXME: Remove this
 		}
 		
-		CompilerInvocation::CreateFromArgs(Invocation, (const char **)argAddresses.begin(),
-										   (const char **)argAddresses.end(), Diags);
+		CompilerInvocation::CreateFromArgs(Invocation,
+                                       (const char **)argAddresses.begin(),
+                                       (const char **)argAddresses.end(),
+                                       Diags);
 		
-		TargetInfo *Target = TargetInfo::CreateTargetInfo(Diags, Invocation.getTargetOpts());
+    TargetOptions &TargetOpts = Invocation.getTargetOpts();
+		TargetInfo *Target = TargetInfo::CreateTargetInfo(Diags, TargetOpts);
 		SourceManager SourceMan(Diags);
 		HeaderSearch hs(fm);
 
-		
 		// FIXME: Note, this means we can't take stdin as input("-")
-		const FileEntry *file = fm.getFile(args[args.size()-2].c_str()); 
+		const FileEntry *file = fm.getFile(inputFile.c_str()); 
 		SourceMan.createMainFileID(file, SourceLocation());
-		Preprocessor localPreprocessor(Diags, Invocation.getLangOpts(), *Target, SourceMan, hs);
+		Preprocessor localPreprocessor(Diags, Invocation.getLangOpts(), *Target, 
+                                   SourceMan, hs);
 
 
 		DoPrintPreprocessedInput(localPreprocessor, OS,
@@ -227,7 +248,8 @@ void *Distcc::PreprocessThread(){
 		memcpy(offset, preprocessedSource.c_str(), preprocessedSourceLen);
 		offset += preprocessedSourceLen;
 		
-		//Try to find a slave which isn't locked, lock it, send message, release lock
+		// Try to find a slave which isn't locked, lock it, send message, release
+    // lock
 		unsigned slaveNo = (currentSlave + 1) % slaves.size();
 		while(!slaveMutexes[slaveNo]->tryacquire()){
 		    //llvm::errs() << "Attempting to connect to slave " << slaveNo << "\n";
@@ -239,13 +261,15 @@ void *Distcc::PreprocessThread(){
 		slaveMutexes[slaveNo]->release();
 		
 		clientsAwaitingObjectCodeMutex.acquire();
-		clientsAwaitingObjectCode.insert(std::pair<uint64_t,DistccClient>(uniqueID, client));
+		clientsAwaitingObjectCode.insert(std::pair<uint64_t,DistccClient>(uniqueID,
+                                                                      client));
 		clientsAwaitingObjectCodeMutex.release();
 
 		
 		free(serializedArgs);		
-		if(clientsAwaitingDistribution.empty()) //Shouldn't need mutex here(worst case, we sleep)
-			usleep(50); //Sleep if there's nothing to do for now
+		if(clientsAwaitingDistribution.empty()) // Shouldn't need mutex here
+                                            // (worst case, we sleep)
+			usleep(50); // Sleep if there's nothing to do for now
 	}
 }
 //Args stored as <arg1>\0<arg2>\0<arg3>\0......<argN>\0
@@ -289,8 +313,9 @@ std::vector<std::string> Distcc::deserializeArgVector(char *string, int length){
 	return v;
 }
 
-//Thread will continuously accept new requests from local Makefile-spawned processes.
-//The request fds will be placed in the "localClients" vector(locked by mutex).
+// This thread will continuously accept new requests from local Makefile-spawned
+// processes.
+// The request fds will be placed in the "localClients" vector(locked by mutex).
 void *Distcc::AcceptThread(){
 	
 	// Run Loop
@@ -316,9 +341,10 @@ void *Distcc::AcceptThread(){
 		//Read the size of serialized arg vector
 		uint32_t sizeOfString = 0; //In bytes
 		int lengthRead = 0;
-		if((lengthRead = recv(fd2, &sizeOfString, sizeof(sizeOfString), MSG_WAITALL))<(int)sizeof(sizeOfString)){
-			llvm::errs() << "Error recieving data from socket(#1) " << lengthRead << "\n";
-
+		if((lengthRead = recv(fd2, &sizeOfString, sizeof(sizeOfString),
+                          MSG_WAITALL))<(int)sizeof(sizeOfString)){
+			llvm::errs() << "Error recieving data from socket(#1) "
+                   << lengthRead << "\n"; 
 			close(fd2);
 			continue;
 		}
@@ -328,8 +354,10 @@ void *Distcc::AcceptThread(){
 		//Read the serialized string
 		char *argString = (char *)malloc(sizeof(char)*sizeOfString);
 		lengthRead = 0;
-		if((lengthRead = recv(fd2, argString, sizeOfString, MSG_WAITALL))<(int)sizeOfString){
-			llvm::errs() << "Error recieving data from socket(#2) " << lengthRead << "\n";
+		if((lengthRead = recv(fd2, argString, sizeOfString,
+                          MSG_WAITALL))<(int)sizeOfString){
+			llvm::errs() << "Error recieving data from socket(#2) " 
+                   << lengthRead << "\n";
 
 			close(fd2);
 			continue;
@@ -398,14 +426,16 @@ void Distcc::startClient(){
 	char *serializedArgs = serializeArgVector(args, lengthOfArgs);
 	
 	int lengthSent = 0;
-	if((lengthSent = send(serverFd, &lengthOfArgs, sizeof(lengthOfArgs), 0))<(int)sizeof(lengthOfArgs)){
+	if((lengthSent = send(serverFd, &lengthOfArgs,
+                        sizeof(lengthOfArgs), 0))<(int)sizeof(lengthOfArgs)){
 		llvm::errs() << "Error sending length of args\n";
 		free(serializedArgs);
 		return;
 	}
 
 	// Send args themselves
-	if((lengthSent = send(serverFd, serializedArgs, lengthOfArgs, 0))<(int)lengthOfArgs){
+	if((lengthSent = send(serverFd, serializedArgs,
+                        lengthOfArgs, 0))<(int)lengthOfArgs){
 		llvm::errs() << "Error sending arguments\n";
 		free(serializedArgs);
 		return;
@@ -416,8 +446,10 @@ void Distcc::startClient(){
 	int lengthRead = 0;
 	int sizeOfDiags = 0;
 	// Recieve length of diags
-	if((lengthRead = recv(serverFd, &sizeOfDiags, sizeof(sizeOfDiags), MSG_WAITALL))<(int)sizeof(sizeOfDiags)){
-		llvm::errs() << "Error recieving length of diags from server " << lengthRead << "\n";
+	if((lengthRead = recv(serverFd, &sizeOfDiags, sizeof(sizeOfDiags),
+                        MSG_WAITALL))<(int)sizeof(sizeOfDiags)){
+		llvm::errs() << "Error recieving length of diags from server "
+                 << lengthRead << "\n";
 		close(serverFd);
 		return;
 	}
@@ -425,8 +457,10 @@ void Distcc::startClient(){
 	
 	// Recieve diags themselves
 	char *diags = (char *)malloc(sizeof(char)*sizeOfDiags);
-	if((lengthRead = recv(serverFd, diags, sizeOfDiags, MSG_WAITALL))<(int)sizeOfDiags){
-		llvm::errs() << "Error recieving diags from server " << lengthRead << "\n";
+	if((lengthRead = recv(serverFd, diags, sizeOfDiags,
+                        MSG_WAITALL))<(int)sizeOfDiags){
+		llvm::errs() << "Error recieving diags from server "
+                 << lengthRead << "\n";
 		close(serverFd);
 		free(diags);
 		return;
@@ -436,7 +470,8 @@ void Distcc::startClient(){
 	const char *memoryEnd = diags + sizeOfDiags;
 	FileManager &fm =  CI->getFileManager();
 	while(memory < memoryEnd){
-		StoredDiagnostic diag = StoredDiagnostic::Deserialize(fm, sm, memory, memoryEnd);
+		StoredDiagnostic diag = StoredDiagnostic::Deserialize(fm, sm,
+                                                          memory, memoryEnd);
 		llvm::errs() << diag.getMessage() << "\n";
 	}
 	llvm::errs().flush();
@@ -452,8 +487,8 @@ void *Distcc::ConnectToSlaves(){
 	//FIXME: Remove hardcoding!
 	llvm::errs() << "Constructing membuf\n";
 	llvm::errs().flush();
-	//MemoryBuffer *Buf = MemoryBuffer::getFile("/Volumes/Data/Users/mike/Desktop/config.txt");
-	MemoryBuffer *Buf = MemoryBuffer::getFile("/home/joshua/llvm/Debug/bin/config.txt");
+  std::string configFile("/Volumes/Data/Users/mike/Desktop/config.txt");
+	MemoryBuffer *Buf = MemoryBuffer::getFile(configFile);
 	llvm::errs() << "Finished constructing membuf\n";
 	llvm::errs().flush();
 	const char *start = Buf->getBufferStart();	
@@ -472,7 +507,8 @@ void *Distcc::ConnectToSlaves(){
 			startChar = curChar+1;
 			zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P); 
 			
-			//NOTE: This is async connect, so it is fast, but the connection is not guaranteed to succeed!
+			// NOTE: This is async connect, so it is fast, but the connection is not
+      // guaranteed to succeed!
 			s->connect(addr.c_str());
 			llvm::errs() << "Connected to slave " << addr.c_str() << "\n";
 			
@@ -483,13 +519,15 @@ void *Distcc::ConnectToSlaves(){
 			s->send(msg);
 			
 			slaves.push_back(s);
-			slaveMutexes.push_back(new sys::Mutex()); //Push lock onto socket lock vector
+      // Push lock onto socket lock vector
+			slaveMutexes.push_back(new sys::Mutex());
 		}
 	}
 	llvm::errs().flush();
 	return NULL;
 }
-//Recieve messages from slaves continuously, and write out object code as relevant
+// Recieve messages from slaves continuously, and write out object code as
+// relevant
 void *Distcc::ReceiveThread(){
 	while(1){
 	    continue;   //FIXME: remove
@@ -501,7 +539,8 @@ void *Distcc::ReceiveThread(){
 				continue; //If we can't get the lock, just move onto next socket
 			if(slaves[i]->recv(&msg, ZMQ_NOBLOCK)<0){
 				if(errno != EAGAIN){
-					llvm::errs() << "Error reading from socket(not EAGAIN): " << errno << "\n";
+					llvm::errs() << "Error reading from socket(not EAGAIN): "
+                       << errno << "\n";
 				}
 				continue; //No data available on slave, just try next one
 			}
@@ -518,8 +557,10 @@ void *Distcc::ReceiveThread(){
 			int objLen = messageLen - (offset - (char*)msg.data());
 			
 			clientsAwaitingObjectCodeMutex.acquire();
-			if(clientsAwaitingObjectCode.find(uniqueID)==clientsAwaitingObjectCode.end()){
-				llvm::errs() << "No client found with unique ID " << uniqueID << ", size " << msg.size() <<"\n";
+			if(clientsAwaitingObjectCode.find(uniqueID)==
+         clientsAwaitingObjectCode.end()){
+				llvm::errs() << "No client found with unique ID "
+                     << uniqueID << ", size " << msg.size() <<"\n";
 				return NULL;
 			}
 			DistccClient client = clientsAwaitingObjectCode[uniqueID];
@@ -527,7 +568,7 @@ void *Distcc::ReceiveThread(){
 			
 			//Write object code to disk
 			std::string errorInfo;
-			llvm::raw_fd_ostream outputStream(client.args[client.args.size()-1].c_str(), errorInfo);
+			llvm::raw_fd_ostream outputStream(client.outputFile.c_str(), errorInfo);
 			outputStream.write(objCode, objLen);
 			outputStream.close();
 			if(errorInfo.size() > 0)

@@ -25,10 +25,12 @@ private:
         llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags;
   
         public:
-        explicit StoredDiagnosticClient(llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags)
+        explicit StoredDiagnosticClient(llvm::SmallVectorImpl<StoredDiagnostic>
+                                        &StoredDiags)
            : StoredDiags(StoredDiags) { }
    
-        void HandleDiagnostic(Diagnostic::Level Level, const DiagnosticInfo &Info) {
+        void HandleDiagnostic(Diagnostic::Level Level,
+                              const DiagnosticInfo &Info) {
             StoredDiags.push_back(StoredDiagnostic(Level, Info));
         }
     };

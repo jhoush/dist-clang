@@ -26,6 +26,7 @@ namespace clang {
 	struct DistccClient{
 		int fd; // fd to talk to client
 		std::vector<std::string> args;
+    std::string outputFile;
 	};
 	
 class Distcc {
@@ -50,8 +51,10 @@ private:
 	
 	
 	// Server-side methods/vars
-	std::queue<DistccClient> clientsAwaitingDistribution; // Holds files which need to be distributed
-	sys::Mutex clientsAwaitingDistributionMutex; //mutex protecting filesAwaitingDistribution queue
+  // Holds files which need to be distributed
+	std::queue<DistccClient> clientsAwaitingDistribution;
+  //mutex protecting filesAwaitingDistribution queue
+	sys::Mutex clientsAwaitingDistributionMutex;
 	
 	
 	// Mapping from unique identifier -> client
@@ -60,13 +63,17 @@ private:
 	std::map<uint64_t, DistccClient> clientsAwaitingObjectCode;
 	sys::Mutex clientsAwaitingObjectCodeMutex;
 	
-	uint64_t counter; // Used to ensure same unique idenifier doesn't get used twice
-	sys::Mutex counterMutex; // FIXME: Use atomic increment instead of mutex??
+  // Used to ensure same unique idenifier doesn't get used twice
+	uint64_t counter;
+  // FIXME: Use atomic increment instead of mutex??
+	sys::Mutex counterMutex;
 	
 	int currentSlave; // Used so we can round-robin slaves
-	
-	std::vector<zmq::socket_t*> slaves; //holds sockets connected to slaves
-	std::vector<sys::Mutex*> slaveMutexes; //since only a socket can only be accessed by 1 thread at once, need lock
+  
+	// holds sockets connected to slaves
+	std::vector<zmq::socket_t*> slaves;
+  // since only a socket can only be accessed by 1 thread at once, need lock
+	std::vector<sys::Mutex*> slaveMutexes;
 	
 	void *ConnectToSlaves();
 	
@@ -106,8 +113,9 @@ private:
 public:
 	Distcc(CompilerInstance &instance);	
 	~Distcc();
-    static std::vector<std::string> deserializeArgVector(char *string, int length);
-    static char *serializeArgVector(std::vector<std::string> &vec, int &length);
+  static std::vector<std::string> deserializeArgVector(char *string,
+                                                       int length);
+  static char *serializeArgVector(std::vector<std::string> &vec, int &length);
 };
 
 	

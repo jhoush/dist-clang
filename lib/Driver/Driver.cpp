@@ -529,6 +529,14 @@ void Driver::BuildActions(const ArgList &Args, ActionList &Actions) const {
   Arg *InputTypeArg = 0;
 
   llvm::SmallVector<std::pair<types::ID, const Arg*>, 16> Inputs;
+  
+  // Strip out -distribute if -S is present. This is because -S is ignored
+  // if -distribute is present. Sort of an ugly hack, but it works.
+  if(Args.hasArg(options::OPT_distribute) && Args.hasArg(options::OPT_S)){
+    // FIXME: Actually remove the arg! Can't delete elements from ArgList?
+  }
+  
+  
   for (ArgList::const_iterator it = Args.begin(), ie = Args.end();
        it != ie; ++it) {
     Arg *A = *it;
@@ -903,7 +911,7 @@ static const Tool &SelectToolForJob(Compilation &C, const ToolChain *TC,
       Inputs = &(*Inputs)[0]->getInputs();
       ToolForJob = &Compiler;
     }
-  }  
+  }
 
   // Otherwise use the tool for the current job.
   if (!ToolForJob)
