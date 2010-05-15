@@ -24,78 +24,42 @@
 // FIXME: stop using zmq
 #include <zmq.hpp>
 
-// FIXME: remove these, for testing only
-#include <iostream>
-#include <fstream>
-
 using namespace clang;
 
 DistccClientServer::DistccClientServer()
-: zmqContext(2, 2) {
-    master = new zmq::socket_t(zmqContext, ZMQ_P2P);
-    master->bind("tcp://192.168.0.9:5555");
-    zmq::message_t msg;
-    master->recv(&msg);
-
-    // initialize synchronization tools
-    pthread_mutex_init(&workQueueMutex, NULL);
-    pthread_cond_init(&recievedWork, NULL);
-
-    llvm::errs() << "Created a client server.\n";
-    llvm::errs().flush();
-    
-    startClientServer();
-}
-
-void DistccClientServer::startClientServer() {
+: zmqContext(2, 1) {
+  // initialize synchronization tools
+  pthread_mutex_init(&workQueueMutex, NULL);
+  pthread_cond_init(&recievedWork, NULL);
+  
   llvm::errs() << "Starting request and compiler threads\n";
-	llvm::errs().flush();
+  llvm::errs().flush();
 	
   if (pthread_create(&requestThread, NULL,
                      pthread_RequestThread, this) < 0) {
-      llvm::errs() << "Error creating request thread\n";
-      llvm::errs().flush();
+    llvm::errs() << "Error creating request thread\n";
+    llvm::errs().flush();
   }
   
   if (pthread_create(&compilerThread, NULL,
                      pthread_CompilerThread, this) < 0) {
-      llvm::errs() << "Error creating compiler thread\n";
-      llvm::errs().flush();
+    llvm::errs() << "Error creating compiler thread\n";
+    llvm::errs().flush();
   }
-  void* status;
-  pthread_join(compilerThread, &status);
-  pthread_join(requestThread, &status);
+  while(1);
+
+  // TODO: something more with these statuses?
+  pthread_join(compilerThread, &compilerThreadStatus);
+  pthread_join(requestThread,  &requestThreadStatus);
+  llvm::errs().flush();
 }
 
 void *DistccClientServer::RequestThread() {
-    /*
-    // FIXME: remove this, for test only
-    std::ifstream s("test2.c");
-    std::string source = "";
-    std::string line;
-    if (s.is_open()) {
-        while (! s.eof() ){
-            getline(s,line);
-            source += line + "\n";
-        }
-        s.close();
-    }
-	std::vector<std::string> args = std::vector<std::string>();
-	args.push_back("test2.c");
-	args.push_back("-o");
-	args.push_back("foo.o");
-	int len;
-	char* tmp = Distcc::serializeArgVector(args, len);
-	std::string sArgs(tmp, len);
-	free(tmp);
-	CompilerWork work = CompilerWork(0, sArgs, source);
-    pthread_mutex_lock(&workQueueMutex);
-    workQueue.push(work);
-    pthread_cond_signal(&recievedWork);
-    pthread_mutex_unlock(&workQueueMutex);
-    llvm::errs().flush();
-    */
-    
+  zmq::socket_t master(zmqContext, ZMQ_UPSTREAM);
+  // FIXME: remove hardcoded address
+  master.bind("tcp://127.0.0.1:5555");
+
+  // FIXME: should timeout at some point    
   while (1) {
     llvm::errs() << "Waiting for more work\n";
     uint64_t uniqueID;
@@ -103,14 +67,12 @@ void *DistccClientServer::RequestThread() {
     zmq::message_t msg;
     
     // receive args
-    if (master->recv(&msg) < 0) {
+    if (master.recv(&msg) < 0) {
         llvm::errs() << "err receiving message\n";
         // handle an error
     }
     
     llvm::errs() << "got message\n";
-    llvm::errs() << msg.data() << "\n";
-    break;
     
     // process message
     char *msgData = (char *)msg.data();
@@ -155,6 +117,10 @@ void *DistccClientServer::RequestThread() {
 }
 
 void *DistccClientServer::CompilerThread() {
+  zmq::socket_t master(zmqContext, ZMQ_DOWNSTREAM);
+  // FIXME: remove hardcoded address
+  master.connect("tcp://localhost:5556");
+
   // FIXME: should timeout at some point
   while (1) {
     // grab from workQueue
@@ -175,10 +141,10 @@ void *DistccClientServer::CompilerThread() {
                                                                  argSize);
     llvm::SmallVector<const char *, 32> argAddresses;
     for (unsigned i=0;i<args.size();i++){
-        if (args[i] == "-o") {
-                i += 2;
-                continue;
-        }
+      if (args[i] == "-o") {
+        i += 2;
+        continue;
+      }
         
       argAddresses.push_back(args[i].c_str());
     }
@@ -235,9 +201,9 @@ void *DistccClientServer::CompilerThread() {
     Clang.setLLVMContext(&llvmc);
 
 
-        // compile
-        llvm::errs() << "start compilation\n";
-        EmitObjAction E;
+    // compile
+    llvm::errs() << "start compilation\n";
+    EmitObjAction E;
 
     //FIXME: Remove this ugly hack to get output to redirect to string
     //FIXME: use .take()?		
@@ -284,7 +250,7 @@ void *DistccClientServer::CompilerThread() {
     offset += diagLen;
     memcpy(offset, objectCode.c_str(), objectCode.size());
     
-    master->send(msg);
+    master.send(msg);
     
     
     delete offset;
@@ -305,8 +271,4 @@ void *DistccClientServer::pthread_RequestThread(void *ctx){
 
 void *DistccClientServer::pthread_CompilerThread(void *ctx){
     return ((DistccClientServer *)ctx)->CompilerThread();
-}
-
-DistccClientServer::~DistccClientServer(){
-	delete master;
 }

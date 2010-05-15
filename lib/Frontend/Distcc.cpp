@@ -46,58 +46,59 @@ using namespace clang;
 
 Distcc::Distcc(CompilerInstance &instance)
 : //FIXME: Determine proper value for app/io threads(respectively)
-zmqContext(2, 2)
+zmqContext(2, 1)
 {
 
-	counter = 0;
-	currentSlave = 0;
-	this->CI = &instance;
-	const char *socketPath = "/tmp/clangSocket";
+  counter = 0;
+  currentSlave = 0;
+  this->CI = &instance;
+  const char *socketPath = "/tmp/clangSocket";
 	
-	if((serverFd = socket(AF_UNIX, SOCK_STREAM, 0))==-1){
-		llvm::errs() << "Error creating socket\n";
-		return;
-	}
+  if((serverFd = socket(AF_UNIX, SOCK_STREAM, 0))==-1){
+    if (remove(socketPath) != 0) {
+      llvm::errs() << "Error creating socket\n";
+      return;
+    }
+    serverFd = socket(AF_UNIX, SOCK_STREAM, 0);
+    assert(serverFd != -1);
+  }
 
-
-	
-	
-	// Attempt to connect to server
-	struct sockaddr_un remote;
-	remote.sun_family = AF_UNIX;
-	strcpy(remote.sun_path,socketPath);
-	int r;
-	if ((r=connect(serverFd, (struct sockaddr *)&remote, sizeof(remote))) == -1){
-		//Didn't connect, so we have to fork!
-		if((r=fork())==0){
-			//Child(server)
-			startServer(remote);	
-		}
-		else if(r>0){
-			//Parent(client)
-			// Sleep until (approx) when socket is ready,
-			//
-			// Sleep for 200 us( ~100us to create and bind to socket on my MBP,
-			// using 200us as a ballpark w/ overhead and slow systems)
-			// FIXME: Tune parameter more.
-			usleep(200);
+  // Attempt to connect to server
+  struct sockaddr_un remote;
+  remote.sun_family = AF_UNIX;
+  strcpy(remote.sun_path,socketPath);
+  int r;
+  if ((r=connect(serverFd, (struct sockaddr *)&remote, sizeof(remote))) == -1){
+    //Didn't connect, so we have to fork!
+    if((r=fork())==0){
+      //Child(server)
+      startServer(remote);	
+    }
+    else if(r>0){
+      //Parent(client)
+      // Sleep until (approx) when socket is ready,
+      //
+      // Sleep for 200 us( ~100us to create and bind to socket on my MBP,
+      // using 200us as a ballpark w/ overhead and slow systems)
+      // FIXME: Tune parameter more.
+      usleep(200);
 			
-			//Spin until connected.
-			//FIXME: Is 100 us the right amount of time to sleep?
-			while (connect(serverFd, (struct sockaddr *)&remote,
-                     sizeof(remote)) == -1)
-				usleep(100); 
-			startClient();
-			return;
-		}
-		else if(r<0){
-			llvm::errs() << "Error forking\n";
-			return;
-		}
-	}
+      //Spin until connected.
+      //FIXME: Is 100 us the right amount of time to sleep?
+      while (connect(serverFd, (struct sockaddr *)&remote,
+             sizeof(remote)) == -1)
+        usleep(100); 
+        startClient();
+        return;
+      }
+    else if(r<0){
+      llvm::errs() << "Error forking\n";
+      return;
+    }
+  }
 	
-	//Connected to server, just start client
-	startClient();
+  //Connected to server, just start client
+  startClient();
 }
 
 
@@ -105,50 +106,44 @@ zmqContext(2, 2)
 // (i.e. the central process accepting connections from Makefile-spawned
 // processes)
 void Distcc::startServer(struct sockaddr_un &addr){
-	//Set up socket to recieve connections
-	acceptSocket = socket(AF_UNIX, SOCK_STREAM, 0);
-	if(bind(acceptSocket, (struct sockaddr *)&addr,
-          sizeof(struct sockaddr_un))<0){
-		// This means we hit the race condition
-		// (another forked process spawned a server)
-		llvm::errs() << "Error binding to socket(startServer)\n";
-		exit(0);
-	}
-	// FIXME: Make second arg(# of queued commands) a parameter
-	// The parameter should be equal to the -j flag in make, so
-	// we never drop connections.
-	if(listen(acceptSocket, 10)<0){
-		llvm::errs() << "Error listening to socket(startServer)\n";
-		close(acceptSocket);
-	}
-	
-	
-	ConnectToSlaves(); // This is OK to be nonthreaded b/c connections are created
-                     // async by zmq
-	
-	llvm::errs() << "Successfully connected to slaves\n";
+  //Set up socket to recieve connections
+  acceptSocket = socket(AF_UNIX, SOCK_STREAM, 0);
+  if(bind(acceptSocket, (struct sockaddr *)&addr,
+         sizeof(struct sockaddr_un))<0){
+    // This means we hit the race condition
+    // (another forked process spawned a server)
+    llvm::errs() << "Error binding to socket(startServer)\n";
+    exit(0);
+  }
+  // FIXME: Make second arg(# of queued commands) a parameter
+  // The parameter should be equal to the -j flag in make, so
+  // we never drop connections.
+  if(listen(acceptSocket, 10)<0){
+    llvm::errs() << "Error listening to socket(startServer)\n";
+    close(acceptSocket);
+  }
 
-	// Start server to accept connections
+  // Start server to accept connections
 
-	if(pthread_create(&acceptThread, NULL, pthread_AcceptThread, this)<0){
-		llvm::errs() << "Error creating AcceptThread\n";
-		close(acceptSocket);
-	}
-	
-	if(pthread_create(&preprocessThread, NULL, pthread_PreprocessThread, this)<0){
-		llvm::errs() << "Error creating preprocessor thread\n";
-		close(acceptSocket);
-	}
-	
-	if(pthread_create(&receiveThread, NULL, pthread_ReceiveThread, this)<0){
-		llvm::errs() << "Error creating preprocessor thread\n";
-		close(acceptSocket);
-	}
-	
-    void* status;
-    pthread_join(acceptThread, &status);
-    pthread_join(preprocessThread, &status);
-	pthread_join(receiveThread, &status);
+  if(pthread_create(&acceptThread, NULL, pthread_AcceptThread, this)<0){
+    llvm::errs() << "Error creating AcceptThread\n";
+    close(acceptSocket);
+  }
+
+  if(pthread_create(&preprocessThread, NULL, pthread_PreprocessThread, this)<0){
+    llvm::errs() << "Error creating preprocessor thread\n";
+    close(acceptSocket);
+  }
+
+  if(pthread_create(&receiveThread, NULL, pthread_ReceiveThread, this)<0){
+    llvm::errs() << "Error creating preprocessor thread\n";
+    close(acceptSocket);
+  }
+
+  void* status;
+  pthread_join(acceptThread, &status);
+  pthread_join(preprocessThread, &status);
+  pthread_join(receiveThread, &status);
 }
 
 // This function's job is to preprocess files and send files to slaves
@@ -156,8 +151,13 @@ void Distcc::startServer(struct sockaddr_un &addr){
 void *Distcc::PreprocessThread(){
 	// FIXME: Timeout after some period
 	FileManager fm; // Outside of loop so we have consistent cache
+	zmq::socket_t slaves(zmqContext, ZMQ_DOWNSTREAM);
+	int numSlaves = 0;
+	// FIXME: connect to slaves
+	slaves.connect("tcp://127.0.0.1:5555");
+	numSlaves++;
+	
 	while(1){
-		
 		while(clientsAwaitingDistribution.empty())
 			usleep(50); // FIXME: Tune param/use cond var
 		clientsAwaitingDistributionMutex.acquire(); 
@@ -193,7 +193,7 @@ void *Distcc::PreprocessThread(){
 		llvm::SmallVector<const char *, 32> argAddresses;
 		for(unsigned i=0;i<args.size();i++){
 			argAddresses.push_back(args[i].c_str());
-			llvm::errs() << args[i] << "\n"; // FIXME: Remove this
+			//slavellvm::errs() << args[i] << "\n"; // FIXME: Remove this
 		}
 		
 		CompilerInvocation::CreateFromArgs(Invocation,
@@ -248,23 +248,15 @@ void *Distcc::PreprocessThread(){
 		memcpy(offset, preprocessedSource.c_str(), preprocessedSourceLen);
 		offset += preprocessedSourceLen;
 		
-		// Try to find a slave which isn't locked, lock it, send message, release
-    // lock
-		unsigned slaveNo = (currentSlave + 1) % slaves.size();
-		while(!slaveMutexes[slaveNo]->tryacquire()){
-		    //llvm::errs() << "Attempting to connect to slave " << slaveNo << "\n";
-			slaveNo = (slaveNo + 1) % slaves.size();
-		}
-		llvm::errs() << "Sending to slave no " << slaveNo << "\n";
-		slaves[slaveNo]->send(msg);
-		currentSlave = slaveNo;
-		slaveMutexes[slaveNo]->release();
+		//send message to current slave
+		llvm::errs() << "Sending to slave no " << currentSlave << "\n";
+		slaves.send(msg);
+		currentSlave = (currentSlave + 1) % numSlaves;
 		
 		clientsAwaitingObjectCodeMutex.acquire();
 		clientsAwaitingObjectCode.insert(std::pair<uint64_t,DistccClient>(uniqueID,
                                                                       client));
 		clientsAwaitingObjectCodeMutex.release();
-
 		
 		free(serializedArgs);		
 		if(clientsAwaitingDistribution.empty()) // Shouldn't need mutex here
@@ -481,126 +473,71 @@ void Distcc::startClient(){
 	free(diags);
 }
 
-void *Distcc::ConnectToSlaves(){
-	//Setup context
-	
-	//FIXME: Remove hardcoding!
-	llvm::errs() << "Constructing membuf\n";
-	llvm::errs().flush();
-  std::string configFile("/Volumes/Data/Users/mike/Desktop/config.txt");
-	MemoryBuffer *Buf = MemoryBuffer::getFile(configFile);
-	llvm::errs() << "Finished constructing membuf\n";
-	llvm::errs().flush();
-	const char *start = Buf->getBufferStart();	
-	const char *end = Buf->getBufferEnd();
-	
-	
-	char *startChar = (char*)start;
-	char *curChar = (char *)start;
-	for ( ; curChar < end ; ++curChar){
-		//FIXME: Handle windows strings(\r\n)
-		//FIXME: File must end with newline!
-		//FIXME: Add support for comments(lines beginning with #)
-		//FIXME: Remove whitespace, and ignore empty lines
-		if(*curChar == '\n'){
-			std::string addr(startChar, curChar - startChar);
-			startChar = curChar+1;
-			zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P); 
-			
-			// NOTE: This is async connect, so it is fast, but the connection is not
-      // guaranteed to succeed!
-			s->connect(addr.c_str());
-			llvm::errs() << "Connected to slave " << addr.c_str() << "\n";
-			
-			std::string foo("hello!");
-			zmq::message_t msg(sizeof(foo));
-			char *offset = (char *)msg.data();
-			memcpy(offset, &foo, sizeof(foo));
-			s->send(msg);
-			
-			slaves.push_back(s);
-      // Push lock onto socket lock vector
-			slaveMutexes.push_back(new sys::Mutex());
-		}
-	}
-	llvm::errs().flush();
-	return NULL;
-}
-// Recieve messages from slaves continuously, and write out object code as
-// relevant
+//Recieve messages from slaves continuously
+//Write out object code as relevant
 void *Distcc::ReceiveThread(){
+  zmq::socket_t slaves(zmqContext, ZMQ_UPSTREAM);
+  slaves.bind("tcp://lo:5556");
+    
 	while(1){
-	    continue;   //FIXME: remove
-		int slaveSize = slaves.size();
-		for(int i=0;i<slaveSize;i++){
-		    llvm::errs() << "trying to receive to slave " << i << "\n";
-			zmq::message_t msg; //FIXME: Move this out of the loop to reuse message?
-			if(!slaveMutexes[i]->tryacquire())
-				continue; //If we can't get the lock, just move onto next socket
-			if(slaves[i]->recv(&msg, ZMQ_NOBLOCK)<0){
-				if(errno != EAGAIN){
-					llvm::errs() << "Error reading from socket(not EAGAIN): "
-                       << errno << "\n";
-				}
-				continue; //No data available on slave, just try next one
+		zmq::message_t msg; //FIXME: Move this out of the loop to reuse message?
+		if(slaves.recv(&msg, ZMQ_NOBLOCK)<0){        // we might want to block?
+			if(errno != EAGAIN){
+				llvm::errs() << "Error reading from socket(not EAGAIN): " << errno << "\n";
 			}
-			//Process message
-			int messageLen = msg.size();
-			char *offset = (char *)msg.data();
-			uint64_t uniqueID = *(uint64_t *)offset;
-			offset += sizeof(uint64_t);
-			uint32_t diagLen = *(uint32_t *)offset;
-			offset += sizeof(uint32_t);
-			char *diags  = (char*)offset;
-			offset += diagLen;
-			const char *objCode = (const char*)offset;
-			int objLen = messageLen - (offset - (char*)msg.data());
-			
-			clientsAwaitingObjectCodeMutex.acquire();
-			if(clientsAwaitingObjectCode.find(uniqueID)==
-         clientsAwaitingObjectCode.end()){
-				llvm::errs() << "No client found with unique ID "
-                     << uniqueID << ", size " << msg.size() <<"\n";
-				return NULL;
-			}
-			DistccClient client = clientsAwaitingObjectCode[uniqueID];
-			clientsAwaitingObjectCodeMutex.release();
-			
-			//Write object code to disk
-			std::string errorInfo;
-			llvm::raw_fd_ostream outputStream(client.outputFile.c_str(), errorInfo);
-			outputStream.write(objCode, objLen);
-			outputStream.close();
-			if(errorInfo.size() > 0)
-				llvm::errs() << errorInfo << "\n";
-			
-			//Send length of diags to client, blocking
-			if(send(client.fd, &diagLen, sizeof(diagLen), 0)<0){
-				llvm::errs() << "Error sending diags back to client\n";
-				//FIXME: Handle this error better
-			}
-			
-			//Send diags to client, blocking
-			//FIXME: Async?
-			if(send(client.fd, diags, diagLen, 0)<0){
-				llvm::errs() << "Error sending diags back to client\n";
-				//FIXME: Handle this error better
-			}
-			
-			//Close connection to client
-			close(client.fd);
-			
-			// Take out client from 
-			clientsAwaitingObjectCodeMutex.acquire();
-			clientsAwaitingObjectCode.erase(clientsAwaitingObjectCode.find(uniqueID));
-			clientsAwaitingObjectCodeMutex.release();
-			
-			//Release socket lock
-			slaveMutexes[i]->release();
+			continue; //No data available on slave, just try next one
+		}
+		//Process message
+		int messageLen = msg.size();
+		char *offset = (char *)msg.data();
+		uint64_t uniqueID = *(uint64_t *)offset;
+		offset += sizeof(uint64_t);
+		uint32_t diagLen = *(uint32_t *)offset;
+		offset += sizeof(uint32_t);
+		char *diags  = (char*)offset;
+		offset += diagLen;
+		const char *objCode = (const char*)offset;
+		int objLen = messageLen - (offset - (char*)msg.data());
+		
+		clientsAwaitingObjectCodeMutex.acquire();
+		if(clientsAwaitingObjectCode.find(uniqueID)==clientsAwaitingObjectCode.end()){
+			llvm::errs() << "No client found with unique ID " << uniqueID << ", size " << msg.size() <<"\n";
+			return NULL;
+		}
+		DistccClient client = clientsAwaitingObjectCode[uniqueID];
+		clientsAwaitingObjectCodeMutex.release();
+		
+		//Write object code to disk
+		std::string errorInfo;
+		llvm::raw_fd_ostream outputStream(client.args[client.args.size()-1].c_str(), errorInfo);
+		outputStream.write(objCode, objLen);
+		outputStream.close();
+		if(errorInfo.size() > 0)
+			llvm::errs() << errorInfo << "\n";
+		
+		//Send length of diags to client, blocking
+		if(send(client.fd, &diagLen, sizeof(diagLen), 0)<0){
+			llvm::errs() << "Error sending diags back to client\n";
+			//FIXME: Handle this error better
 		}
 		
+		//Send diags to client, blocking
+		//FIXME: Async?
+		if(send(client.fd, diags, diagLen, 0)<0){
+			llvm::errs() << "Error sending diags back to client\n";
+			//FIXME: Handle this error better
+		}
+		
+		//Close connection to client
+		close(client.fd);
+		
+		// Take out client from 
+		clientsAwaitingObjectCodeMutex.acquire();
+		clientsAwaitingObjectCode.erase(clientsAwaitingObjectCode.find(uniqueID));
+		clientsAwaitingObjectCodeMutex.release();
 	}
 }
+
 // Static pthread helper method
 void *Distcc::pthread_AcceptThread(void *ctx){
 	return ((Distcc *)ctx)->AcceptThread();
@@ -610,13 +547,4 @@ void *Distcc::pthread_PreprocessThread(void *ctx){
 }
 void *Distcc::pthread_ReceiveThread(void *ctx){
 	return ((Distcc *)ctx)->ReceiveThread();
-}
-
-Distcc::~Distcc(){
-	for(unsigned i=0;i<slaves.size();i++){
-		delete slaves[i];
-	}
-	for(unsigned i=0;i<slaveMutexes.size();i++){
-		delete slaveMutexes[i];
-	}
 }
