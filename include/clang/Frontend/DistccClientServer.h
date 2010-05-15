@@ -67,6 +67,9 @@ private:
     static void *pthread_RequestThread(void *ctx);
     static void *pthread_CompilerThread(void *ctx);
     
+    // FIXME: Remove this copied(from Driver.cpp) when becomes available
+    // in sys::Path
+    std::string GetTemporaryPath(const char *Suffix) const;
 public:
     DistccClientServer();
     ~DistccClientServer(){}

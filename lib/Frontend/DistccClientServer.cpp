@@ -10,13 +10,25 @@
 #include "clang/Frontend/DistccClientServer.h"
 #include "clang/Frontend/Distcc.h"
 
+#include "clang/Driver/Action.h"
+#include "clang/Driver/ArgList.h"
+#include "clang/Driver/Compilation.h"
+#include "clang/Driver/Driver.h"
+#include "clang/Driver/Types.h"
+#include "clang/Driver/Tool.h"
 #include "clang/Frontend/CodeGenAction.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/TargetInfo.h"
 
+#include "../Driver/InputInfo.h"
+#include "../Driver/ToolChains.h"
+#include "../Driver/Tools.h"
+
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/LLVMContext.h"
+#include <iostream>
+#include <fstream>
 
 // FIXME: Replace UNIX-specific operations with system-agnostc ones
 #include <pthread.h>
@@ -25,13 +37,12 @@
 #include <zmq.hpp>
 
 using namespace clang;
-
 DistccClientServer::DistccClientServer()
 : zmqContext(2, 1) {
   // initialize synchronization tools
   pthread_mutex_init(&workQueueMutex, NULL);
   pthread_cond_init(&recievedWork, NULL);
-  
+
   llvm::errs() << "Starting request and compiler threads\n";
   llvm::errs().flush();
 	
@@ -46,7 +57,6 @@ DistccClientServer::DistccClientServer()
     llvm::errs() << "Error creating compiler thread\n";
     llvm::errs().flush();
   }
-  while(1);
 
   // TODO: something more with these statuses?
   pthread_join(compilerThread, &compilerThreadStatus);
@@ -124,6 +134,7 @@ void *DistccClientServer::CompilerThread() {
   // FIXME: should timeout at some point
   while (1) {
     // grab from workQueue
+    llvm::errs() << "Waiting for work!\n";
     pthread_mutex_lock(&workQueueMutex);
     while (workQueue.size() == 0) {
         pthread_cond_wait(&recievedWork, &workQueueMutex);
@@ -203,21 +214,83 @@ void *DistccClientServer::CompilerThread() {
 
     // compile
     llvm::errs() << "start compilation\n";
+#if COMPILING_FOR_OSX
     EmitObjAction E;
+#else
+    EmitAssemblyAction E;
+#endif
 
-    //FIXME: Remove this ugly hack to get output to redirect to string
-    //FIXME: use .take()?		
+    // FIXME: Remove this ugly hack to get output to redirect to string
+    // FIXME: use .take()?		
     E.setOutputStream(&objectCodeStream);
 
     E.BeginSourceFile(Clang, dummyPath);
 
     E.Execute();
 
-        // get the object code
+    // get the object code
     E.EndSourceFile();
+    objectCodeStream.flush();
+// FIXME: Remove this once MC is supported in Linux! (get to work mfleming!)
+#if !COMPILING_FOR_OSX
+    // Write assembly file out, run assembler, put object code back in place    
+    std::string assemblyFile = GetTemporaryPath("S");
+    llvm::errs() << "Temp assembly file is " << assemblyFile << "\n";
+    TargetOptions &TargetOpts = Clang.getTargetOpts();
+    
+    std::string objectFile = GetTemporaryPath("o");
+    llvm::errs() << "Temp object file is " << objectFile << "\n";
+    
+    // Write out assembly file
+    // FIXME: Use PipeJob instead!
+    std::string ErrorInfo;
+    raw_fd_ostream assemblyStream(assemblyFile.c_str(), ErrorInfo);
+    assemblyStream << objectCode;
+    assemblyStream.close();
+    
+    // FIXME: Remove reference to driver... we shouldn't need all this
+    // gunk just to execute the assembler
+    driver::Driver TheDriver("clang", "/", TargetOpts.Triple,
+                             "a.out", false, false, *Diags);
+    
+    // Construct Driver, Compilation, and AssembleJobAction, so we can assemble
+    // the assembly code from the EmitAssemblyAction.
+    //
+    // This is extremely ugly, and probably expensive work, but it's not worth
+    // worrying about, since this code will be obsolete when MC is supported
+    // on all platform.
 
+    const char *HostTriple = TargetOpts.Triple.c_str();
+    driver::toolchains::Generic_GCC TC(*TheDriver.GetHostInfo(HostTriple),
+                                      llvm::Triple(TargetOpts.Triple));
+    driver::tools::gcc::Assemble AssembleTool(TC);
+    
+    driver::InputArgList argList(ArgBegin, ArgEnd);
+    driver::Compilation C(TheDriver, TC, &argList);
+    driver::AssembleJobAction assembleAction(NULL, driver::types::TY_Object);
+    
+    driver::InputInfo Output(objectFile.c_str(), driver::types::TY_Object,NULL);
+    
+    driver::InputInfo Input(assemblyFile.c_str(),driver::types::TY_Asm,NULL);
+    driver::InputInfoList Inputs;
+    Inputs.push_back(Input);
+    
+    AssembleTool.ConstructJob(C, assembleAction, C.getJobs(), 
+                              Output, Inputs, C.getArgsForToolChain(&TC, 0),
+                              NULL);
+    llvm::errs() << "There are " << C.getJobs().size() << " jobs to run(1)\n";
+    const driver::Command *FailingCommand = 0;
+    C.ExecuteJob(C.getJobs(), FailingCommand);
+    objectCode.clear();
+    MemoryBuffer *objectBuffer = llvm::MemoryBuffer::getFile(objectFile);
+    objectCode.append(objectBuffer->getBufferStart(),
+                      objectBuffer->getBufferSize());
+    // Remove temporary files
+    std::remove(assemblyFile.c_str());
+    std::remove(objectFile.c_str());
+#endif
+    
     llvm::errs() << "finished compilation\n";
-
     llvm::errs() << "Object code size: " << objectCode.size() << "\n";
 
     // avoid calling destructors twice
@@ -272,3 +345,31 @@ void *DistccClientServer::pthread_RequestThread(void *ctx){
 void *DistccClientServer::pthread_CompilerThread(void *ctx){
     return ((DistccClientServer *)ctx)->CompilerThread();
 }
+
+// FIXME: Taken from Driver.cpp because the method isn't static...
+// Presumably this will migrate to sys::Path eventually, so we can take this out
+std::string DistccClientServer::GetTemporaryPath(const char *Suffix) const {
+  // FIXME: This is lame; sys::Path should provide this function (in particular,
+  // it should know how to find the temporary files dir).
+  std::string Error;
+  const char *TmpDir = ::getenv("TMPDIR");
+  if (!TmpDir)
+    TmpDir = ::getenv("TEMP");
+  if (!TmpDir)
+    TmpDir = ::getenv("TMP");
+  if (!TmpDir)
+    TmpDir = "/tmp";
+  llvm::sys::Path P(TmpDir);
+  P.appendComponent("cc");
+  if (P.makeUnique(false, &Error)) {
+    llvm::errs() << "Error making path!\n";
+    return "";
+  }
+  
+  // FIXME: Grumble, makeUnique sometimes leaves the file around!?  PR3837.
+  P.eraseFromDisk(false, 0);
+  
+  P.appendSuffix(Suffix);
+  return P.str();
+}
+
