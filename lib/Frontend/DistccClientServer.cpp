@@ -289,7 +289,13 @@ void *DistccClientServer::CompilerThread() {
     driver::Driver TheDriver("clang", "/", TargetOpts.Triple,
                              "a.out", false, false, *Diags);
     
-    
+    // Construct Driver, Compilation, and AssembleJobAction, so we can assemble
+    // the assembly code from the EmitAssemblyAction.
+    //
+    // This is extremely ugly, and probably expensive work, but it's not worth
+    // worrying about, since this code will be obsolete when MC is supported
+    // on all platform.
+
     const char *HostTriple = TargetOpts.Triple.c_str();
     driver::toolchains::Generic_GCC TC(*TheDriver.GetHostInfo(HostTriple),
                                       llvm::Triple(TargetOpts.Triple));
@@ -315,6 +321,9 @@ void *DistccClientServer::CompilerThread() {
     MemoryBuffer *objectBuffer = llvm::MemoryBuffer::getFile(objectFile);
     objectCode.append(objectBuffer->getBufferStart(),
                       objectBuffer->getBufferSize());
+    // Remove temporary files
+    std::remove(assemblyFile.c_str());
+    std::remove(objectFile.c_str());
 #endif
     
     llvm::errs() << "finished compilation\n";
