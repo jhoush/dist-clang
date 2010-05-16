@@ -510,7 +510,7 @@ void *Distcc::ReceiveThread(){
     
 	while(1){
 		zmq::message_t msg; //FIXME: Move this out of the loop to reuse message?
-		if(slaves.recv(&msg, ZMQ_NOBLOCK)<0){        // we might want to block?
+		if(slaves.recv(&msg, 0)<0){
 			if(errno != EAGAIN){
 				llvm::errs() << "Error reading from socket(not EAGAIN): " << errno << "\n";
 			}
@@ -518,16 +518,21 @@ void *Distcc::ReceiveThread(){
 		}
 		//Process message
 		int messageLen = msg.size();
+    assert(messageLen > (sizeof(uint64_t) + sizeof(uint32_t))
+           && "Message must be big enough to hold UID + diag length");
 		char *offset = (char *)msg.data();
 		uint64_t uniqueID = *(uint64_t *)offset;
 		offset += sizeof(uint64_t);
 		uint32_t diagLen = *(uint32_t *)offset;
+    assert(messageLen > (sizeof(uint64_t) + sizeof(uint32_t) + diagLen)
+           && "Message must be big enough to hold UID + diag length + "
+           "text the size of diags");
 		offset += sizeof(uint32_t);
 		char *diags  = (char*)offset;
 		offset += diagLen;
 		const char *objCode = (const char*)offset;
-		int objLen = messageLen - (offset - (char*)msg.data());
-		
+    int objLen = messageLen - (offset - (char*)msg.data());
+   assert(objLen >= 0 && "Object code size must be >= 0");
 		clientsAwaitingObjectCodeMutex.acquire();
 		if(clientsAwaitingObjectCode.find(uniqueID)==clientsAwaitingObjectCode.end()){
 			llvm::errs() << "No client found with unique ID " << uniqueID << ", size " << msg.size() <<"\n";

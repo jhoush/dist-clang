@@ -316,6 +316,7 @@ void *DistccClientServer::CompilerThread() {
     memcpy(offset, &uniqueID, sizeof(uniqueID));
     offset += sizeof(uniqueID);
     memcpy(offset, &diagLen, sizeof(diagLen));
+    llvm::errs() << "Sending diag len " << *(uint32_t*)offset << "\n";
     offset += diagLen;		
     
     memcpy(offset, diags.data(), diagLen);
