@@ -334,7 +334,7 @@ void *DistccClientServer::CompilerThread() {
 // Steals work
 void *DistccClientServer::SupplicationThread() {
   // Connect to peers
-  std::vector<zmq::socket_t> peers;
+  std::vector<zmq::socket_t*> peers;
   MemoryBuffer *Buf = MemoryBuffer::getFile
                              ("/Volumes/Data/Users/mike/Desktop/config.txt");
   const char *start = Buf->getBufferStart();
@@ -373,15 +373,18 @@ void *DistccClientServer::SupplicationThread() {
     
     // choose a peer
     int peerNum = (rand()%peers.size())+1;
-    zmq::socket_t peer = peers[peerNum];
+    zmq::socket_t *peer = peers[peerNum];
     
     // send request
     std::string myLoc("tcp://127.0.0.1:5557");
-    zmq::message_t request
+    zmq::message_t request(myLoc.length() + 1);
+    char *offset = (char *)request.data();
+    memcpy(offset, myLoc.c_str(), myLoc.length()+1);
+    peer->send(request);
     
     // get reply
     zmq::message_t response;
-    peer.recv(&response);
+    peer->recv(&response);
     
     if (response.size() == 0) {
       continue; // peer's not interested
@@ -405,6 +408,8 @@ void *DistccClientServer::DelegateThread() {
   while (1) {
     zmq::message_t msg;
     supplicants.recv(&msg);
+    zmq::socket_t peer(zmqContext, ZMQ_P2P);
+    peer.connect((char *)msg.data());
     
     DistccClientServer::CompilerWork work(0, "", "");
     pthread_mutex_lock(&workQueueMutex);
@@ -418,7 +423,7 @@ void *DistccClientServer::DelegateThread() {
     zmq::message_t response(response_str.length() + 1);
     char *offset = (char *) response.data();
     memcpy(offset, response_str.c_str(), response_str.length() + 1);
-    supplicants.send(response);
+    peer.send(response);
   }
   
   return NULL; // Suppress warning
