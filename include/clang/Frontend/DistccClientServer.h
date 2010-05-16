@@ -22,16 +22,16 @@ private:
     // which includes a built-in serialization function
     // see FIXME: ActualHeaderFile.h
     class StoredDiagnosticClient : public DiagnosticClient {
-        llvm::SmallVectorImpl<StoredDiagnostic> &StoredDiags;
+        llvm::SmallVector<StoredDiagnostic,4> &StoredDiags;
   
         public:
-        explicit StoredDiagnosticClient(llvm::SmallVectorImpl<StoredDiagnostic>
+        explicit StoredDiagnosticClient(llvm::SmallVector<StoredDiagnostic,4>
                                         &StoredDiags)
            : StoredDiags(StoredDiags) { }
    
         void HandleDiagnostic(Diagnostic::Level Level,
                               const DiagnosticInfo &Info) {
-            StoredDiags.push_back(StoredDiagnostic(Level, Info));
+            StoredDiags.push_back(StoredDiagnostic(Level,Info));
         }
     };
 

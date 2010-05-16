@@ -157,7 +157,7 @@ void *DistccClientServer::CompilerThread() {
     llvm::errs() << "deserialized args\n";
 
     // setup compiler instance
-    llvm::SmallVectorImpl<StoredDiagnostic> StoredDiags(10);
+    llvm::SmallVector<StoredDiagnostic, 4> StoredDiags;
     StoredDiagnosticClient DiagsBuffer(StoredDiags);
     CompilerInvocation Invocation;
     CompilerInstance Clang;
@@ -298,7 +298,7 @@ void *DistccClientServer::CompilerThread() {
     // serialize diagnostics
     std::string diags;
     llvm::raw_string_ostream diagsStream(diags);
-    llvm::SmallVectorImpl<StoredDiagnostic>::iterator itr = StoredDiags.begin();
+    //llvm::SmallVector<StoredDiagnostic,4>::iterator itr = StoredDiags.begin();
     /*while (itr != StoredDiags.end()) {
       itr->Serialize(diagsStream); // might work
       ++itr;
