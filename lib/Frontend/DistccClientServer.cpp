@@ -29,6 +29,7 @@
 #include "llvm/LLVMContext.h"
 #include <iostream>
 #include <fstream>
+#include <ctime>
 
 // FIXME: Replace UNIX-specific operations with system-agnostc ones
 #include <pthread.h>
@@ -333,6 +334,34 @@ void *DistccClientServer::CompilerThread() {
 // Steals work
 void *DistccClientServer::SupplicationThread() {
   // Connect to peers
+  std::vector<zmq::socket_t> peers;
+  MemoryBuffer *Buf = MemoryBuffer::getFile
+                             ("/Volumes/Data/Users/mike/Desktop/config.txt");
+  const char *start = Buf->getBufferStart();
+  const char *end = Buf->getBufferEnd();
+  char *startChar = (char*)start;
+  char *curChar = (char *)start;
+  
+  for ( ; curChar < end ; ++curChar) {
+    //FIXME: Handle windows strings(\r\n)
+    //FIXME: File must end with newline!
+    //FIXME: Add support for comments(lines beginning with #)
+    //FIXME: Remove whitespace, and ignore empty lines
+    if(*curChar == '\n') {
+      std::string addr(startChar, curChar - startChar);
+      startChar = curChar+1;
+      
+      // FIXME: Don't create a socket for the current process
+      zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P);
+      //NOTE: This is async connect, so it is fast, 
+      //but the connection is not guaranteed to succeed!
+      s->connect(addr.c_str());
+      peers.push_back(s);
+    }
+  }
+  
+  // seed the prng
+  srand((unsigned)time(0));
 
   while (1) {
     // block while there's work to do
@@ -343,14 +372,16 @@ void *DistccClientServer::SupplicationThread() {
     pthread_mutex_unlock(&workQueueMutex);
     
     // choose a peer
-    //zmq::socket_t peer;
+    int peerNum = (rand()%peers.size())+1;
+    zmq::socket_t peer = peers[peerNum];
     
     // send request
-    
+    std::string myLoc("tcp://127.0.0.1:5557");
+    zmq::message_t request
     
     // get reply
     zmq::message_t response;
-    //peer.recv(&response);
+    peer.recv(&response);
     
     if (response.size() == 0) {
       continue; // peer's not interested
