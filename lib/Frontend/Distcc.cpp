@@ -155,12 +155,8 @@ void Distcc::startServer(struct sockaddr_un &addr){
 }
 
 void *Distcc::SendThread() {
-  zmq::socket_t slaves(*zmqContext, ZMQ_DOWNSTREAM);
-  
-  int numSlaves = 0;
-  // FIXME: connect to slaves
+  zmq::socket_t slaves(*zmqContext, ZMQ_DOWNSTREAM);  
   slaves.bind("tcp://127.0.0.1:5555");
-  numSlaves++;
   
   while (1) {
     pthread_mutex_lock(&workQueueMutex);
