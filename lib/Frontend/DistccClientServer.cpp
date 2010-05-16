@@ -37,11 +37,11 @@
 #include <zmq.hpp>
 
 using namespace clang;
-DistccClientServer::DistccClientServer()
-: zmqContext(2, 1) {
+DistccClientServer::DistccClientServer() : zmqContext(4, 4) {
   // initialize synchronization tools
   pthread_mutex_init(&workQueueMutex, NULL);
   pthread_cond_init(&recievedWork, NULL);
+  pthread_cond_init(&noWork, NULL);
 
   llvm::errs() << "Starting request and compiler threads\n";
   llvm::errs().flush();
@@ -60,14 +60,14 @@ DistccClientServer::DistccClientServer()
 
   // TODO: something more with these statuses?
   pthread_join(compilerThread, &compilerThreadStatus);
-  pthread_join(requestThread,  &requestThreadStatus);
+  pthread_join(requestThread, &requestThreadStatus);
   llvm::errs().flush();
 }
 
 void *DistccClientServer::RequestThread() {
   zmq::socket_t master(zmqContext, ZMQ_UPSTREAM);
-  // FIXME: remove hardcoded address
-  master.bind("tcp://127.0.0.1:5555");
+  // FIXME: remove hard coded value
+  master.connect("tcp://127.0.0.1:5555");
 
   // FIXME: should timeout at some point    
   while (1) {
@@ -106,8 +106,6 @@ void *DistccClientServer::RequestThread() {
     std::string source((const char *) tmp, sourceSize);
     delete tmp;
     
-    delete msgData;
-
     // add to work queue
     pthread_mutex_lock(&workQueueMutex);
     workQueue.push(CompilerWork(uniqueID, args, source));
@@ -115,9 +113,6 @@ void *DistccClientServer::RequestThread() {
     pthread_mutex_unlock(&workQueueMutex);
 
     llvm::errs() << "added work to queue\n";
-    
-    // FIXME: remove
-    break;
   }
       
   llvm::errs() << "request thread: exit\n";
@@ -137,7 +132,7 @@ void *DistccClientServer::CompilerThread() {
     llvm::errs() << "Waiting for work!\n";
     pthread_mutex_lock(&workQueueMutex);
     while (workQueue.size() == 0) {
-        pthread_cond_wait(&recievedWork, &workQueueMutex);
+      pthread_cond_wait(&recievedWork, &workQueueMutex);
     }
     CompilerWork work = workQueue.front();
     workQueue.pop();
@@ -206,7 +201,7 @@ void *DistccClientServer::CompilerThread() {
 
     Clang.createPreprocessor();
 
-        llvm::errs() << "overrode source file\n";
+    llvm::errs() << "overrode source file\n";
 
     llvm::LLVMContext llvmc;
     Clang.setLLVMContext(&llvmc);
@@ -303,13 +298,15 @@ void *DistccClientServer::CompilerThread() {
     std::string diags;
     llvm::raw_string_ostream diagsStream(diags);
     llvm::SmallVectorImpl<StoredDiagnostic>::iterator itr = StoredDiags.begin();
-    while (itr != StoredDiags.end()) {
+    /*while (itr != StoredDiags.end()) {
       itr->Serialize(diagsStream); // might work
       ++itr;
-    }
+    }*/
+    
+    llvm::errs() << "Serialized diagnostics\n";
 
-    uint32_t diagLen = diags.size();
     // create message
+    uint32_t diagLen = diags.size();
     uint32_t totalLen = sizeof(uniqueID) + sizeof(diagLen) +
                         diags.size() + objectCode.size();
     zmq::message_t msg(totalLen);
@@ -324,17 +321,123 @@ void *DistccClientServer::CompilerThread() {
     memcpy(offset, objectCode.c_str(), objectCode.size());
     
     master.send(msg);
-    
-    
-    delete offset;
-    
-    // FIXME: remove
-    break;
   }
+  
   llvm::errs() << "compiler thread: exit\n";
   llvm::errs().flush();
       
-  return NULL; // suppress warning
+  return NULL; // Suppress warning
+}
+
+// Steals work
+void *DistccClientServer::SupplicationThread() {
+  // Connect to peers
+
+  while (1) {
+    // block while there's work to do
+    pthread_mutex_lock(&workQueueMutex);
+    while (workQueue.size() > 0) {
+      pthread_cond_wait(&noWork, &workQueueMutex);
+    }
+    pthread_mutex_unlock(&workQueueMutex);
+    
+    // choose a peer
+    //zmq::socket_t peer;
+    
+    // send request
+    
+    
+    // get reply
+    zmq::message_t response;
+    //peer.recv(&response);
+    
+    if (response.size() == 0) {
+      continue; // peer's not interested
+    }
+    
+    // add to work queue
+    pthread_mutex_lock(&workQueueMutex);
+    workQueue.push(ProcessMessage(response));
+    pthread_cond_signal(&recievedWork);
+    pthread_mutex_unlock(&workQueueMutex);
+  }
+      
+  return NULL; // Suppress warning
+}
+
+// lets other slaves steal work
+void *DistccClientServer::DelegateThread() {
+  zmq::socket_t supplicants(zmqContext, ZMQ_P2P);
+  supplicants.bind("tcp://127.0.0.1:5558");
+  
+  while (1) {
+    zmq::message_t msg;
+    supplicants.recv(&msg);
+    
+    DistccClientServer::CompilerWork work(0, "", "");
+    pthread_mutex_lock(&workQueueMutex);
+    if (workQueue.size() > 0) { // TODO: tune?
+      work = workQueue.front();
+      workQueue.pop();
+    }
+    pthread_mutex_unlock(&workQueueMutex);
+    
+    std::string response_str = ProcessCompilerWork(work);
+    zmq::message_t response(response_str.length() + 1);
+    char *offset = (char *) response.data();
+    memcpy(offset, response_str.c_str(), response_str.length() + 1);
+    supplicants.send(response);
+  }
+  
+  return NULL; // Suppress warning
+}
+
+std::string DistccClientServer::ProcessCompilerWork
+(DistccClientServer::CompilerWork& work) {
+  std::string str;
+  if (work.uniqueID == 0 &&
+      work.args.size() == 0 &&
+      work.source.size() == 0) {
+      zmq::message_t msg(0);
+      str = "";
+  }
+ 
+	str += work.uniqueID;
+	str += work.args.length() + 1;
+	str += work.args;
+	str += work.source;
+  
+  return str;
+}
+
+DistccClientServer::CompilerWork DistccClientServer::ProcessMessage
+(zmq::message_t& msg) {
+  uint64_t uniqueID;
+  uint32_t argLen;
+    
+  char *msgData = (char *)msg.data();
+  int offset = 0;
+  memcpy(&uniqueID, &msgData[offset], sizeof(uniqueID));
+  offset += sizeof(uniqueID);
+  memcpy(&argLen, &msgData[offset], sizeof(argLen));
+    
+  // copy args
+  offset += sizeof(argLen);
+  char *tmp = new char[argLen];
+  memcpy(tmp, &msgData[offset], argLen);
+  std::string args((const char *) tmp, argLen);
+  delete tmp;
+    
+  // copy source
+  offset += argLen;
+  int sourceSize = msg.size() - offset;
+  tmp = new char[sourceSize];
+  memcpy(tmp, &msgData[offset], sourceSize);
+  std::string source((const char *) tmp, sourceSize);
+  delete tmp;
+  
+  CompilerWork work(uniqueID, args, source);
+  return work;
 }
 
 // Static pthread helper method
@@ -344,6 +447,14 @@ void *DistccClientServer::pthread_RequestThread(void *ctx){
 
 void *DistccClientServer::pthread_CompilerThread(void *ctx){
     return ((DistccClientServer *)ctx)->CompilerThread();
+}
+
+void *DistccClientServer::pthread_SupplicationThread(void *ctx){
+    return ((DistccClientServer *)ctx)->SupplicationThread();
+}
+
+void *DistccClientServer::pthread_DelegateThread(void *ctx){
+    return ((DistccClientServer *)ctx)->DelegateThread();
 }
 
 // FIXME: Taken from Driver.cpp because the method isn't static...

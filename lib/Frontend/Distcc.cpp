@@ -44,13 +44,11 @@ using namespace clang;
 // Note: http://beej.us/guide/bgipc/ was used as a reference when making socket
 // code
 
-Distcc::Distcc(CompilerInstance &instance)
-: //FIXME: Determine proper value for app/io threads(respectively)
-zmqContext(2, 1)
-{
-
+Distcc::Distcc(CompilerInstance &instance) {
+  pthread_mutex_init(&workQueueMutex, NULL);
+  pthread_cond_init(&moreWork, NULL);
+  
   counter = 0;
-  currentSlave = 0;
   this->CI = &instance;
   const char *socketPath = "/tmp/clangSocket";
 	
@@ -122,8 +120,15 @@ void Distcc::startServer(struct sockaddr_un &addr){
     llvm::errs() << "Error listening to socket(startServer)\n";
     close(acceptSocket);
   }
+  
+  zmqContext = new zmq::context_t(2, 2);
 
   // Start server to accept connections
+
+  if(pthread_create(&sendThread, NULL, pthread_SendThread, this)<0){
+    llvm::errs() << "Error creating SendThread\n";
+    close(acceptSocket);
+  }
 
   if(pthread_create(&acceptThread, NULL, pthread_AcceptThread, this)<0){
     llvm::errs() << "Error creating AcceptThread\n";
@@ -141,21 +146,71 @@ void Distcc::startServer(struct sockaddr_un &addr){
   }
 
   void* status;
+  pthread_join(sendThread, &status);
   pthread_join(acceptThread, &status);
   pthread_join(preprocessThread, &status);
   pthread_join(receiveThread, &status);
+  
+  delete zmqContext;
+}
+
+void *Distcc::SendThread() {
+  zmq::socket_t slaves(*zmqContext, ZMQ_DOWNSTREAM);
+  
+  int numSlaves = 0;
+  // FIXME: connect to slaves
+  slaves.bind("tcp://127.0.0.1:5555");
+  numSlaves++;
+  
+  while (1) {
+    pthread_mutex_lock(&workQueueMutex);
+    while (workQueue.size() == 0) {
+      pthread_cond_wait(&moreWork, &workQueueMutex);
+    }
+    Work work = workQueue.front();
+    workQueue.pop();
+    pthread_mutex_unlock(&workQueueMutex);
+    
+    uint64_t uniqueID = work.uniqueID;
+    std::vector<std::string> args = work.args;
+    std::string preprocessedSource = work.source;
+    
+		int argLen;
+		char *serializedArgs = serializeArgVector(args, argLen);
+		
+		int preprocessedSourceLen = preprocessedSource.length() + 1; //For null byte
+		
+		int totalLen = preprocessedSourceLen + argLen + 4 + 8; /*
+																length of preprocessed source + 
+																argument length +
+																length of integer which holds length of args +
+																length of UID +
+																*/
+		llvm::errs() << "Creating message\n";
+		// Compose message
+		zmq::message_t msg(totalLen);
+		char *offset = (char *)msg.data();
+		memcpy(offset, &uniqueID, sizeof(uniqueID)); //Copy uniqueid into message 
+		offset += sizeof(uniqueID);
+		memcpy(offset, &argLen, sizeof(argLen)); //Copy arg length into message
+		offset += sizeof(argLen);
+		memcpy(offset, serializedArgs, argLen); //Copy args into message
+		offset += argLen;
+		memcpy(offset, preprocessedSource.c_str(), preprocessedSourceLen);
+		offset += preprocessedSourceLen;
+		
+		slaves.send(msg);
+		free(serializedArgs);
+		llvm::errs() << "Message sent\n";
+  }
+  
+  return NULL; // Suppress warning
 }
 
 // This function's job is to preprocess files and send files to slaves
-
 void *Distcc::PreprocessThread(){
 	// FIXME: Timeout after some period
 	FileManager fm; // Outside of loop so we have consistent cache
-	zmq::socket_t slaves(zmqContext, ZMQ_DOWNSTREAM);
-	int numSlaves = 0;
-	// FIXME: connect to slaves
-	slaves.connect("tcp://127.0.0.1:5555");
-	numSlaves++;
 	
 	while(1){
 		while(clientsAwaitingDistribution.empty())
@@ -217,52 +272,30 @@ void *Distcc::PreprocessThread(){
 								 Invocation.getPreprocessorOutputOpts());
 		OS->flush();
 		delete OS;
-				
-		int argLen;
-		char *serializedArgs = serializeArgVector(client.args, argLen);
-		
-		int preprocessedSourceLen = preprocessedSource.length() + 1; //For null byte
-		
-		int totalLen = preprocessedSourceLen + argLen + 4 + 8; /*
-																length of preprocessed source + 
-																argument length +
-																length of integer which holds length of args +
-																length of UID +
-																*/
 		
 		// FIXME: Atomic increment instead of mutex?
 		counterMutex.acquire();
 		uint64_t uniqueID = counter++;
 		counterMutex.release();
 		
-		llvm::errs() << "Creating message\n";
-		// Compose message
-		zmq::message_t msg(totalLen);
-		char *offset = (char *)msg.data();
-		memcpy(offset, &uniqueID, sizeof(uniqueID)); //Copy uniqueid into message 
-		offset += sizeof(uniqueID);
-		memcpy(offset, &argLen, sizeof(argLen)); //Copy arg length into message
-		offset += sizeof(argLen);
-		memcpy(offset, serializedArgs, argLen); //Copy args into message
-		offset += argLen;
-		memcpy(offset, preprocessedSource.c_str(), preprocessedSourceLen);
-		offset += preprocessedSourceLen;
-		
-		//send message to current slave
-		llvm::errs() << "Sending to slave no " << currentSlave << "\n";
-		slaves.send(msg);
-		currentSlave = (currentSlave + 1) % numSlaves;
+		//send preprocessed source and args on queue
+		Work work(uniqueID, client.args, preprocessedSource);
+    pthread_mutex_lock(&workQueueMutex);
+		workQueue.push(work);
+    pthread_cond_signal(&moreWork);
+    pthread_mutex_unlock(&workQueueMutex);
 		
 		clientsAwaitingObjectCodeMutex.acquire();
 		clientsAwaitingObjectCode.insert(std::pair<uint64_t,DistccClient>(uniqueID,
                                                                       client));
 		clientsAwaitingObjectCodeMutex.release();
 		
-		free(serializedArgs);		
 		if(clientsAwaitingDistribution.empty()) // Shouldn't need mutex here
                                             // (worst case, we sleep)
 			usleep(50); // Sleep if there's nothing to do for now
 	}
+	
+	return NULL; // Suppress warning
 }
 //Args stored as <arg1>\0<arg2>\0<arg3>\0......<argN>\0
 //Second param returns the length of the serialized string
@@ -476,8 +509,8 @@ void Distcc::startClient(){
 //Recieve messages from slaves continuously
 //Write out object code as relevant
 void *Distcc::ReceiveThread(){
-  zmq::socket_t slaves(zmqContext, ZMQ_UPSTREAM);
-  slaves.bind("tcp://lo:5556");
+  zmq::socket_t slaves(*zmqContext, ZMQ_UPSTREAM);
+  slaves.bind("tcp://127.0.0.1:5556");
     
 	while(1){
 		zmq::message_t msg; //FIXME: Move this out of the loop to reuse message?
@@ -536,6 +569,8 @@ void *Distcc::ReceiveThread(){
 		clientsAwaitingObjectCode.erase(clientsAwaitingObjectCode.find(uniqueID));
 		clientsAwaitingObjectCodeMutex.release();
 	}
+  
+  return NULL; // Suppress warning
 }
 
 // Static pthread helper method
@@ -548,3 +583,7 @@ void *Distcc::pthread_PreprocessThread(void *ctx){
 void *Distcc::pthread_ReceiveThread(void *ctx){
 	return ((Distcc *)ctx)->ReceiveThread();
 }
+void *Distcc::pthread_SendThread(void *ctx){
+    return ((Distcc *)ctx)->SendThread();
+}
+

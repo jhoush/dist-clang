@@ -50,22 +50,34 @@ private:
     std::queue<CompilerWork> workQueue; // queue holding all the assigned work
     pthread_mutex_t workQueueMutex; // mutex protecting the work queue
     pthread_cond_t  recievedWork;
+    pthread_cond_t  noWork;
     zmq::context_t zmqContext;
     
     // Helpful threads
     pthread_t requestThread;
     pthread_t compilerThread;
+    pthread_t supplicationThread;
+    pthread_t delegateThread;
     
     void *RequestThread();
     void *CompilerThread();
+    void *SupplicationThread();
+    void *DelegateThread();
+    
+    CompilerWork ProcessMessage(zmq::message_t& msg);
+    std::string ProcessCompilerWork(CompilerWork& work);
     
     // Status variables for threads
     void *requestThreadStatus;
     void *compilerThreadStatus;
+    void *supplicationThreadStatus;
+    void *delegateThreadStatus;
     
     // Boostrapping functions for pthreads
     static void *pthread_RequestThread(void *ctx);
     static void *pthread_CompilerThread(void *ctx);
+    static void *pthread_SupplicationThread(void *ctx);
+    static void *pthread_DelegateThread(void *ctx);
     
     // FIXME: Remove this copied(from Driver.cpp) when becomes available
     // in sys::Path

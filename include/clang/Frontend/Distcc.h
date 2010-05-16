@@ -48,7 +48,20 @@ private:
   //to disk, and sends the diags back to the slave.
 	
   //FIXME: Send preproc diags back as well as post-preproc diags!
-	
+  
+  
+  // Struct to handle work data
+  struct Work {
+    Work(uint64_t id, std::vector<std::string> a, std::string s)
+      : uniqueID(id), args(a) ,source(s){}
+        
+    uint64_t uniqueID;
+    std::vector<std::string> args;
+    std::string source;
+  }; 
+	std::queue<Work> workQueue;
+  pthread_mutex_t workQueueMutex;
+  pthread_cond_t  moreWork;
 	
   // Server-side methods/vars
   // Holds files which need to be distributed
@@ -73,22 +86,25 @@ private:
   std::map<uint64_t,DistccClient> files;
 	
 	
-  zmq::context_t zmqContext;
+  zmq::context_t *zmqContext;
 	
   pthread_t acceptThread;
   pthread_t preprocessThread;
   pthread_t receiveThread;
+  pthread_t sendThread;
 	
   int acceptSocket;
 	
   void *AcceptThread();
   void *PreprocessThread();
   void *ReceiveThread();
+  void *SendThread();
 	
   //Boostrapping functions for pthreads
   static void *pthread_AcceptThread(void *ctx);
   static void *pthread_PreprocessThread(void *ctx);
   static void *pthread_ReceiveThread(void *ctx);
+  static void *pthread_SendThread(void *ctx);
 	
   void startServer(struct sockaddr_un &addr);
 
@@ -98,14 +114,10 @@ private:
   int serverFd; // Fd with connection to the server
   CompilerInstance *CI;
 	
-  // Helper methods
-  //char *serializeArgVector(std::vector<std::string> &vec, int &length);
-  //std::vector<std::string> deserializeArgVector(char *string, int length);
-
-	
 public:
   Distcc(CompilerInstance &instance);	
   ~Distcc(){}
+  
   static std::vector<std::string> deserializeArgVector(char *string,
                                                        int length);
   static char *serializeArgVector(std::vector<std::string> &vec, int &length);
