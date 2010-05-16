@@ -125,7 +125,7 @@ void *DistccClientServer::RequestThread() {
 void *DistccClientServer::CompilerThread() {
   zmq::socket_t master(zmqContext, ZMQ_DOWNSTREAM);
   // FIXME: remove hardcoded address
-  master.connect("tcp://localhost:5556");
+  master.connect("tcp://127.0.0.1:5556");
 
   // FIXME: should timeout at some point
   while (1) {
@@ -297,7 +297,7 @@ void *DistccClientServer::CompilerThread() {
     
 
     // serialize diagnostics
-    std::string diags;
+    std::string diags("");
     llvm::raw_string_ostream diagsStream(diags);
     //llvm::SmallVector<StoredDiagnostic,4>::iterator itr = StoredDiags.begin();
     /*while (itr != StoredDiags.end()) {
@@ -308,15 +308,15 @@ void *DistccClientServer::CompilerThread() {
     llvm::errs() << "Serialized diagnostics\n";
 
     // create message
-    uint32_t diagLen = diags.size();
+    uint32_t diagLen = 0;
     uint32_t totalLen = sizeof(uniqueID) + sizeof(diagLen) +
-                        diags.size() + objectCode.size();
+                        diagLen + objectCode.size();
     zmq::message_t msg(totalLen);
     char *offset = (char *)msg.data();
     memcpy(offset, &uniqueID, sizeof(uniqueID));
     offset += sizeof(uniqueID);
     memcpy(offset, &diagLen, sizeof(diagLen));
-    offset += diagLen;		
+    offset += sizeof(diagLen);
     
     memcpy(offset, diags.data(), diagLen);
     offset += diagLen;
@@ -395,6 +395,10 @@ void *DistccClientServer::SupplicationThread() {
     workQueue.push(ProcessMessage(response));
     pthread_cond_signal(&recievedWork);
     pthread_mutex_unlock(&workQueueMutex);
+  }
+  
+  for (unsigned i = 0; i < peers.size(); i++) {
+    delete peers[i];
   }
       
   return NULL; // Suppress warning

@@ -510,14 +510,19 @@ void *Distcc::ReceiveThread(){
     
 	while(1){
 		zmq::message_t msg; //FIXME: Move this out of the loop to reuse message?
-		if(slaves.recv(&msg, ZMQ_NOBLOCK)<0){        // we might want to block?
+		if(slaves.recv(&msg/*, ZMQ_NOBLOCK*/)<0){        // we might want to block?
 			if(errno != EAGAIN){
-				llvm::errs() << "Error reading from socket(not EAGAIN): " << errno << "\n";
+				llvm::errs() << "Error reading from socket(not EAGAIN): " 
+				             << errno << "\n";
 			}
 			continue; //No data available on slave, just try next one
 		}
+		llvm::errs() << "Received message\n";
+		
 		//Process message
+		/*
 		int messageLen = msg.size();
+		llvm::errs() << "message size " << msg.size() << "\n";
 		char *offset = (char *)msg.data();
 		uint64_t uniqueID = *(uint64_t *)offset;
 		offset += sizeof(uint64_t);
@@ -525,37 +530,77 @@ void *Distcc::ReceiveThread(){
 		offset += sizeof(uint32_t);
 		char *diags  = (char*)offset;
 		offset += diagLen;
+		llvm::errs() << "diags len " << diagLen << "\n";
 		const char *objCode = (const char*)offset;
 		int objLen = messageLen - (offset - (char*)msg.data());
+		llvm::errs() << "Processed message\n";*/
+		uint64_t uniqueID;
+  uint32_t diagLen;
+    
+    llvm::errs() << "message size " << msg.size() << "\n";
+  char *msgData = (char *)msg.data();
+  int offset = 0;
+  memcpy(&uniqueID, &msgData[offset], sizeof(uniqueID));
+    llvm::errs() << "uniqueID " << uniqueID << "\n";
+  offset += sizeof(uniqueID);
+  llvm::errs() << "sizeof(uniqueID) " << sizeof(uniqueID) << "\n";
+  memcpy(&diagLen, &msgData[offset], sizeof(diagLen));
+		llvm::errs() << "diagLen " << diagLen << "\n";
+    
+  // copy args
+  offset += sizeof(diagLen);
+  char *tmp = new char[diagLen];
+  memcpy(tmp, &msgData[offset], diagLen);
+  std::string diags((const char *) tmp, diagLen);
+  delete tmp;
+    
+  // copy source
+  offset += diagLen;
+  int objLen = msg.size() - offset;
+		llvm::errs() << "objLen " << objLen << "\n";
+  tmp = new char[objLen];
+  memcpy(tmp, &msgData[offset], objLen);
+  std::string objCode((const char *) tmp, objLen);
+  delete tmp;
 		
 		clientsAwaitingObjectCodeMutex.acquire();
 		if(clientsAwaitingObjectCode.find(uniqueID)==clientsAwaitingObjectCode.end()){
-			llvm::errs() << "No client found with unique ID " << uniqueID << ", size " << msg.size() <<"\n";
+			llvm::errs() << "No client found with unique ID "
+			             <<    uniqueID << ", size " << msg.size() <<"\n";
 			return NULL;
 		}
 		DistccClient client = clientsAwaitingObjectCode[uniqueID];
 		clientsAwaitingObjectCodeMutex.release();
+		llvm::errs() << "Found client\n";
 		
 		//Write object code to disk
 		std::string errorInfo;
-		llvm::raw_fd_ostream outputStream(client.args[client.args.size()-1].c_str(), errorInfo);
-		outputStream.write(objCode, objLen);
+		llvm::raw_fd_ostream outputStream(client.args[client.args.size()-1].c_str(),
+		                                  errorInfo);
+		llvm::errs() << "object len " << objLen << "\n";
+		llvm::errs() << "strlen(objCode)" << objCode.length() << "\n";
+		outputStream.write(objCode.data(), objLen);
+		llvm::errs() << "checkpoint 2\n";
 		outputStream.close();
+		llvm::errs() << "checkpoint 3\n";
 		if(errorInfo.size() > 0)
 			llvm::errs() << errorInfo << "\n";
+		llvm::errs() << "wrote object code\n";
 		
 		//Send length of diags to client, blocking
 		if(send(client.fd, &diagLen, sizeof(diagLen), 0)<0){
 			llvm::errs() << "Error sending diags back to client\n";
 			//FIXME: Handle this error better
 		}
+		llvm::errs() << "sent diags len to client\n";
 		
 		//Send diags to client, blocking
 		//FIXME: Async?
-		if(send(client.fd, diags, diagLen, 0)<0){
+		if(send(client.fd, diags.data(), diagLen, 0)<0){
 			llvm::errs() << "Error sending diags back to client\n";
 			//FIXME: Handle this error better
 		}
+		llvm::errs() << "sent diags to client\n";
 		
 		//Close connection to client
 		close(client.fd);
