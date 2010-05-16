@@ -260,8 +260,9 @@ void *DistccClientServer::CompilerThread() {
                                       llvm::Triple(TargetOpts.Triple));
     driver::tools::gcc::Assemble AssembleTool(TC);
     
-    driver::InputArgList argList(ArgBegin, ArgEnd);
-    driver::Compilation C(TheDriver, TC, &argList);
+    driver::InputArgList *argList = new driver::InputArgList(ArgBegin, ArgEnd);
+    // Compilation takes ownership of argList
+    driver::Compilation C(TheDriver, TC, argList);
     driver::AssembleJobAction assembleAction(NULL, driver::types::TY_Object);
     
     driver::InputInfo Output(objectFile.c_str(), driver::types::TY_Object,NULL);
