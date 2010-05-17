@@ -30,12 +30,16 @@
 #include <iostream>
 #include <fstream>
 #include <ctime>
+#include <unistd.h>
+
 
 // FIXME: Replace UNIX-specific operations with system-agnostc ones
 #include <pthread.h>
 
 // FIXME: stop using zmq
 #include <zmq.hpp>
+
+#define stealWork 0
 
 using namespace clang;
 DistccClientServer::DistccClientServer() : zmqContext(4, 4) {
@@ -57,6 +61,23 @@ DistccClientServer::DistccClientServer() : zmqContext(4, 4) {
                      pthread_CompilerThread, this) < 0) {
     llvm::errs() << "Error creating compiler thread\n";
     llvm::errs().flush();
+  }
+  
+  if (stealWork) {
+    if (pthread_create(&supplicationThread, NULL,
+                       pthread_SupplicationThread, this) < 0) {
+      llvm::errs() << "Error creating supplication thread\n";
+      llvm::errs().flush();
+    }
+    
+    if (pthread_create(&delegateThread, NULL,
+                       pthread_DelegateThread, this) < 0) {
+      llvm::errs() << "Error creating delegate thread\n";
+      llvm::errs().flush();
+    }
+    
+    pthread_join(supplicationThread, &supplicationThreadStatus);
+    pthread_join(delegateThread, &delegateThreadStatus);
   }
 
   // TODO: something more with these statuses?
@@ -336,13 +357,24 @@ void *DistccClientServer::CompilerThread() {
 void *DistccClientServer::SupplicationThread() {
   // Connect to peers
   std::vector<zmq::socket_t*> peers;
-  MemoryBuffer *Buf = MemoryBuffer::getFile
-                             ("/Volumes/Data/Users/mike/Desktop/config.txt");
+  MemoryBuffer *Buf = MemoryBuffer::getFile("/home/joshua/Desktop/config.txt");
   const char *start = Buf->getBufferStart();
   const char *end = Buf->getBufferEnd();
   char *startChar = (char*)start;
   char *curChar = (char *)start;
   
+  // Get the hostname for the current machine
+  char hostname[255];
+  gethostname(hostname, 255);
+  std::string myLoc("tcp://");
+  myLoc += hostname;
+  myLoc += ":5557";
+  
+  // Set up channel for receiving replies
+  zmq::socket_t replyLine(zmqContext, ZMQ_P2P);
+  replyLine.bind("tcp://127.0.0.1:5557");
+  
+  llvm::errs() << "connecting to peers\n";
   for ( ; curChar < end ; ++curChar) {
     //FIXME: Handle windows strings(\r\n)
     //FIXME: File must end with newline!
@@ -351,15 +383,25 @@ void *DistccClientServer::SupplicationThread() {
     if(*curChar == '\n') {
       std::string addr(startChar, curChar - startChar);
       startChar = curChar+1;
+      addr = "tcp://" + addr;
+      addr += ":5558";
       
-      // FIXME: Don't create a socket for the current process
-      zmq::socket_t *s = new zmq::socket_t(zmqContext,ZMQ_P2P);
+      // Don't create a socket for the current process
+      // FIXME: support more than one process on a machine
+      if (!strcmp(hostname, addr.c_str())) {
+        continue;
+      }
+      
+      zmq::socket_t *s = new zmq::socket_t(zmqContext, ZMQ_P2P);
       //NOTE: This is async connect, so it is fast, 
       //but the connection is not guaranteed to succeed!
       s->connect(addr.c_str());
       peers.push_back(s);
+      
+      llvm::errs() << "connected to " << addr << "\n";
     }
   }
+  llvm::errs() << "connected to peers\n";
   
   // seed the prng
   srand((unsigned)time(0));
@@ -373,27 +415,32 @@ void *DistccClientServer::SupplicationThread() {
     pthread_mutex_unlock(&workQueueMutex);
     
     // choose a peer
-    int peerNum = (rand()%peers.size())+1;
+    int peerNum = (rand()%peers.size());
     zmq::socket_t *peer = peers[peerNum];
+    llvm::errs() << "requesting work from peer " << peerNum << "\n";
     
     // send request
-    std::string myLoc("tcp://127.0.0.1:5557");
     zmq::message_t request(myLoc.length() + 1);
     char *offset = (char *)request.data();
     memcpy(offset, myLoc.c_str(), myLoc.length()+1);
     peer->send(request);
     
+    llvm::errs() << "awaiting response\n";
+    
     // get reply
     zmq::message_t response;
-    peer->recv(&response);
+    replyLine.recv(&response);  
     
-    if (response.size() == 0) {
+    llvm::errs() << "received response\n";
+    
+    if (response.size() == 1) {
       continue; // peer's not interested
     }
     
     // add to work queue
+    CompilerWork work = ProcessMessage(response);
     pthread_mutex_lock(&workQueueMutex);
-    workQueue.push(ProcessMessage(response));
+    workQueue.push(work);
     pthread_cond_signal(&recievedWork);
     pthread_mutex_unlock(&workQueueMutex);
   }
@@ -411,10 +458,12 @@ void *DistccClientServer::DelegateThread() {
   supplicants.bind("tcp://127.0.0.1:5558");
   
   while (1) {
+    llvm::errs() << "waiting for a request\n";
     zmq::message_t msg;
     supplicants.recv(&msg);
     zmq::socket_t peer(zmqContext, ZMQ_P2P);
     peer.connect((char *)msg.data());
+    llvm::errs() << "connected to " << (char *)msg.data() << "\n";
     
     DistccClientServer::CompilerWork work(0, "", "");
     pthread_mutex_lock(&workQueueMutex);
@@ -424,11 +473,13 @@ void *DistccClientServer::DelegateThread() {
     }
     pthread_mutex_unlock(&workQueueMutex);
     
+    
     std::string response_str = ProcessCompilerWork(work);
     zmq::message_t response(response_str.length() + 1);
     char *offset = (char *) response.data();
     memcpy(offset, response_str.c_str(), response_str.length() + 1);
     peer.send(response);
+    llvm::errs() << "sent work\n";
   }
   
   return NULL; // Suppress warning
@@ -436,18 +487,34 @@ void *DistccClientServer::DelegateThread() {
 
 std::string DistccClientServer::ProcessCompilerWork
 (DistccClientServer::CompilerWork& work) {
-  std::string str;
   if (work.uniqueID == 0 &&
       work.args.size() == 0 &&
       work.source.size() == 0) {
       zmq::message_t msg(0);
-      str = "";
+      return "\0";
   }
- 
-	str += work.uniqueID;
-	str += work.args.length() + 1;
-	str += work.args;
-	str += work.source;
+  uint64_t uniqueID = work.uniqueID;
+  uint32_t argLen = work.args.length();
+  uint32_t sourceLen = work.source.length();
+  
+  int totalLen = sizeof(uniqueID) + sizeof(argLen) + argLen + sourceLen;
+  char *buffer = new char[totalLen];
+  int offset = 0;
+  
+  memcpy(&buffer[offset], &uniqueID, sizeof(uniqueID));
+  offset += sizeof(uniqueID);
+  
+  memcpy(&buffer[offset], &argLen, sizeof(argLen));
+  offset += sizeof(argLen);
+  
+  memcpy(&buffer[offset], work.args.c_str(), argLen);
+  offset += argLen;
+  
+  memcpy(&buffer[offset], work.source.c_str(), sourceLen);
+  offset += sourceLen;
+  
+  std::string str(buffer, totalLen);
+  delete buffer;
   
   return str;
 }
@@ -469,7 +536,7 @@ DistccClientServer::CompilerWork DistccClientServer::ProcessMessage
   memcpy(tmp, &msgData[offset], argLen);
   std::string args((const char *) tmp, argLen);
   delete tmp;
-    
+  
   // copy source
   offset += argLen;
   int sourceSize = msg.size() - offset;
