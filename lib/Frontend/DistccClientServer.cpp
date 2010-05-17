@@ -158,8 +158,13 @@ void *DistccClientServer::CompilerThread() {
     }
     CompilerWork work = workQueue.front();
     workQueue.pop();
+
     pthread_mutex_unlock(&workQueueMutex);
     llvm::errs() << "retrieved work from queue\n";
+    
+    if (workQueue.size() == 0) {
+      pthread_cond_signal(&noWork);
+    }
 
     uint64_t uniqueID = work.uniqueID;
     llvm::StringRef Source(work.source);
