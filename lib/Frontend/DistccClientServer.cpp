@@ -89,7 +89,7 @@ DistccClientServer::DistccClientServer() : zmqContext(4, 4) {
 void *DistccClientServer::RequestThread() {
   zmq::socket_t master(zmqContext, ZMQ_UPSTREAM);
   // FIXME: remove hard coded value
-  master.connect("tcp://127.0.0.1:5555");
+  master.connect("tcp://chromatic-dragon.cs.utexas.edu:5555");
 
   // FIXME: should timeout at some point    
   while (1) {
@@ -146,7 +146,7 @@ void *DistccClientServer::RequestThread() {
 void *DistccClientServer::CompilerThread() {
   zmq::socket_t master(zmqContext, ZMQ_DOWNSTREAM);
   // FIXME: remove hardcoded address
-  master.connect("tcp://127.0.0.1:5556");
+  master.connect("tcp://chromatic-dragon.cs.utexas.edu:5556");
 
   // FIXME: should timeout at some point
   while (1) {
@@ -357,7 +357,7 @@ void *DistccClientServer::CompilerThread() {
 void *DistccClientServer::SupplicationThread() {
   // Connect to peers
   std::vector<zmq::socket_t*> peers;
-  MemoryBuffer *Buf = MemoryBuffer::getFile("/home/joshua/Desktop/config.txt");
+  MemoryBuffer *Buf = MemoryBuffer::getFile("/u/mike/config.txt");
   const char *start = Buf->getBufferStart();
   const char *end = Buf->getBufferEnd();
   char *startChar = (char*)start;
